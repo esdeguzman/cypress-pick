@@ -27,11 +27,27 @@ test('it reads specPattern out of a CommonJS config', () => {
 });
 
 test('it falls back to the Cypress defaults when there is no config it can read', () => {
-    const dir = makeProject({ 'cypress.config.ts': 'export default {}' });
+    // A TypeScript config is the wrong fixture for this path: Node 22.6 and later can
+    // load one, so whether it fails depends on which Node the suite runs on, not on
+    // this code. A config whose top level throws cannot be loaded by any Node version,
+    // so this is what actually forces the fallback.
+    const dir = makeProject({ 'cypress.config.js': "throw new Error('deliberate failure for this test')" });
     const host = readHost(dir);
     assert.deepEqual(host.specPattern, ['cypress/e2e/**/*.cy.{js,jsx,ts,tsx}']);
     assert.equal(host.supportFile, 'cypress/support/e2e.js');
     assert.equal(host.configRead, false);
+});
+
+test('a TypeScript config is read on a Node version that supports it, and falls back on one that does not, and either way the result is usable', () => {
+    // Node 22.6 and later strip the types and load a TypeScript config like any other.
+    // An earlier Node cannot load it at all. Both are legitimate outcomes, so this test
+    // asserts only what holds either way, not which branch was taken.
+    const dir = makeProject({ 'cypress.config.ts': 'export default {}' });
+    const host = readHost(dir);
+    assert.equal(Array.isArray(host.specPattern), true);
+    assert.equal(host.specPattern.length > 0, true);
+    assert.equal(host.specPattern.every((p) => typeof p === 'string'), true);
+    assert.equal(typeof host.supportFile === 'string' || host.supportFile === null, true);
 });
 
 test('it finds spec files and returns them with forward slashes', () => {

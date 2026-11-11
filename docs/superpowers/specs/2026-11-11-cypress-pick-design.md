@@ -171,9 +171,14 @@ It does not touch `.skip` or `.only`, which keep their normal meaning.
 
 ## 7. Finding the specs in an unknown project
 
-It reads the host's Cypress config for `specPattern` and `excludeSpecPattern`. If the
+It reads the host's Cypress config for `specPattern` and `excludeSpecPattern`. ~~If the
 config cannot be read, which happens with a TypeScript config file, it falls back to
-Cypress's own default glob and says that it did. A `--spec-pattern` flag overrides both.
+Cypress's own default glob and says that it did.~~ **Corrected: whether a TypeScript
+config can be read depends on the Node version running the command, not on the file being
+TypeScript.** Node 22.6 and later strip the types and load it like any other config; an
+earlier Node cannot load it at all. Either way the result is handled: read it when it can
+be read, and fall back to Cypress's own default glob and say that it did when it cannot. A
+`--spec-pattern` flag overrides both.
 
 It handles `.cy.js`, `.cy.ts`, `.cy.jsx` and `.cy.tsx`.
 
