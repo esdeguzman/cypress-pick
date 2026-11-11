@@ -41,6 +41,40 @@ function parseArgs(argv) {
     return options;
 }
 
+// Same rule runner.js already applies on the environment-variable path: a spec flag
+// the person typed themselves is what they meant, so it must win rather than sit
+// next to the picked one, where which one Cypress obeys is not something this tool
+// checks or tests.
+function hasSpecFlag(argv) {
+    return argv.some((a) => a === '--spec' || a === '-s' || a.startsWith('--spec='));
+}
+
+// buildArgs always puts the picked spec as its first two entries, ['--spec', value],
+// so when a typed spec flag is present those two are dropped and only a filter flag,
+// if there is one, is kept ahead of whatever the person typed.
+function composeCypressArgs(selection, version, passthrough) {
+    const built = buildArgs(selection, version);
+    const args = hasSpecFlag(passthrough) ? built.slice(2) : built;
+    return args.concat(passthrough);
+}
+
+// Reads the ticked rows of the run-mode list and decides what to do, without
+// touching the prompt itself, so this can be tested without a terminal. `how` is
+// null only when the choice was ambiguous; `message` is a line to print either way,
+// or null when there is nothing to say.
+function decideHow(state, scripts) {
+    const ticked = state.specs.filter((s) => s.checked);
+    if (ticked.length > 1) {
+        return { how: null, message: 'Only one way of running can be chosen at a time. Nothing was run.' };
+    }
+    if (ticked.length === 0) {
+        return { how: { kind: 'cypress' }, message: 'Nothing was ticked, so Cypress will run directly.' };
+    }
+    const picked = state.specs.findIndex((s) => s.checked);
+    if (picked === 0) return { how: { kind: 'cypress' }, message: null };
+    return { how: { kind: 'script', name: scripts[picked - 1].name }, message: null };
+}
+
 // A second list, reusing the same widget, so the run mode is picked the same way the
 // specs were. Running Cypress directly is always first because it needs no setup in
 // the host project.
@@ -54,9 +88,7 @@ async function chooseHow(scripts, { stdout, stdin }) {
         stdin,
     });
     if (!state) return null;
-    const picked = state.specs.findIndex((s) => s.checked);
-    if (picked <= 0) return { kind: 'cypress' };
-    return { kind: 'script', name: scripts[picked - 1].name };
+    return decideHow(state, scripts);
 }
 
 async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin = process.stdin } = {}) {
@@ -123,14 +155,23 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
         hostPackage = {};
     }
     const scripts = runnableScripts(hostPackage);
-    const how = scripts.length === 0 ? { kind: 'cypress' } : await chooseHow(scripts, { stdout, stdin });
-    if (!how) { stdout.write('\n  Nothing run.\n'); return 0; }
+    const outcome = scripts.length === 0
+        ? { how: { kind: 'cypress' }, message: null }
+        : await chooseHow(scripts, { stdout, stdin });
+    if (!outcome) { stdout.write('\n  Nothing run.\n'); return 0; }
+    if (outcome.message) stdout.write('\n  ' + outcome.message + '\n');
+    if (!outcome.how) return 1;
+    const how = outcome.how;
 
     const version = { cypressMajor: host.cypressMajor === null ? 16 : host.cypressMajor };
     if (how.kind === 'cypress') {
-        return runCypress(buildArgs(selection, version).concat(options.passthrough), { cwd: root });
+        return runCypress(composeCypressArgs(selection, version, options.passthrough), { cwd: root });
     }
-    return runNpmScript(how.name, { cwd: root, env: buildEnv(selection, version) });
+    return runNpmScript(how.name, {
+        cwd: root,
+        env: buildEnv(selection, version),
+        scripts: scripts.map((s) => s.name),
+    });
 }
 
-module.exports = { main, parseArgs };
+module.exports = { main, parseArgs, composeCypressArgs, hasSpecFlag, decideHow };

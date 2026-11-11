@@ -38,6 +38,16 @@ test('a spec flag already on the command line wins', () => {
     assert.deepEqual(out, ['cypress', 'run', '--spec', 'typed.cy.js']);
 });
 
+test('the short form of a typed spec flag wins too', () => {
+    const out = applyPick(['cypress', 'run', '-s', 'typed.cy.js'], { CYPICK_SPEC: 'picked.cy.js' });
+    assert.deepEqual(out, ['cypress', 'run', '-s', 'typed.cy.js']);
+});
+
+test('a typed spec flag with an equals sign wins too', () => {
+    const out = applyPick(['cypress', 'run', '--spec=typed.cy.js'], { CYPICK_SPEC: 'picked.cy.js' });
+    assert.deepEqual(out, ['cypress', 'run', '--spec=typed.cy.js']);
+});
+
 test('it does not change the array it was given', () => {
     const args = ['cypress', 'run'];
     applyPick(args, { CYPICK_SPEC: 'a.cy.js' });
