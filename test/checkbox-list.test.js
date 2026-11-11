@@ -232,3 +232,118 @@ test('the cursor is shown again after Ctrl+C', async () => {
     await resultPromise;
     assert.equal(written[written.length - 1], '\u001b[?25h');
 });
+
+// Fix round 1, finding 2: the up arrow and the left arrow had no test driving them
+// through promptList at all, only reduce() was tested directly for them. These mirror
+// the existing down-arrow and right-arrow tests above.
+
+test('the up arrow moves the cursor up', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+    stdin.write('\u001b[B'); // down first, so moving up again is a visible change
+    stdin.write('\u001b[A'); // up, back to the top
+    stdin.write('\r');
+    const state = await resultPromise;
+    assert.ok(state);
+    assert.equal(state.cursor, 0);
+});
+
+test('the left arrow closes an open spec', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+    stdin.write('\u001b[C'); // open spec a, its contexts are now drawn
+    stdin.write('\u001b[D'); // close it again
+    stdin.write('\r');
+    const state = await resultPromise;
+    assert.ok(state);
+    assert.deepEqual(visibleRows(state).map((r) => r.kind), ['spec', 'spec'], 'the contexts are hidden again');
+});
+
+// Fix round 1, finding 1: a terminal under latency, such as an SSH session or a
+// session inside tmux, can deliver the escape byte of an arrow key in its own chunk,
+// ahead of the rest of the sequence. The bare escape byte used to be a quit key, so
+// that chunk alone closed the picker before the rest of the arrow ever arrived. It is
+// no longer a quit key; instead a chunk that is a strict prefix of an arrow sequence
+// is held and joined to the next chunk.
+
+test('a split up arrow, the escape byte then the rest in a second chunk, moves the cursor instead of quitting', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+
+    stdin.write('\u001b[B'); // down first, so moving up again is a visible change
+    stdin.write('\u001b'); // the up arrow's escape byte, arriving alone
+    stdin.write('[A'); // the rest of the sequence, in a second chunk
+    stdin.write('\r');
+
+    const state = await resultPromise;
+    assert.ok(state, 'the picker did not quit when the escape byte arrived on its own');
+    assert.equal(state.cursor, 0, 'the split up arrow still moved the cursor back to the top');
+});
+
+test('a split down arrow, the escape and the bracket then the letter in a second chunk, moves the cursor', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+
+    stdin.write('\u001b['); // escape and bracket together, the letter not sent yet
+    stdin.write('B'); // the letter, in a second chunk
+    stdin.write('\r');
+
+    const state = await resultPromise;
+    assert.ok(state);
+    assert.equal(state.cursor, 1, 'the split down arrow moved the cursor from spec a to spec b');
+});
+
+test('a held escape byte followed by an unrelated key is dropped, not quitting and changing nothing', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+
+    stdin.write('\u001b'); // escape byte, held in case an arrow follows
+    stdin.write('z'); // an unrelated key, not the rest of any known sequence
+    stdin.write('\r');
+
+    const state = await resultPromise;
+    assert.ok(state, 'the picker did not quit');
+    assert.equal(state.cursor, 0, 'neither byte moved the cursor');
+    assert.equal(visibleRows(state)[0].mark, ' ', 'nothing was ticked either');
+});
+
+// Fix round 1, finding 3: an exception thrown while handling a key, or an error on
+// the stdin stream itself, used to leave the terminal in raw mode with the cursor
+// hidden, because restore() was never reached on that path.
+
+test('an exception inside the key handler still restores the terminal before the promise rejects', async () => {
+    // reduce() itself has no path that throws for a well formed state, so this test
+    // replaces it for one call to check the handler's own try/catch, which is what
+    // this fix actually added. The module is reloaded afterwards so later tests get
+    // the real reduce() back.
+    const listStatePath = require.resolve('../src/list-state');
+    const checkboxListPath = require.resolve('../src/checkbox-list');
+    const listStateModule = require(listStatePath);
+    const originalReduce = listStateModule.reduce;
+    listStateModule.reduce = () => {
+        throw new Error('reduce broke');
+    };
+    delete require.cache[checkboxListPath];
+    const { promptList: brokenPromptList } = require(checkboxListPath);
+
+    try {
+        const { stdin, stdout, written } = fakeTerminal();
+        const resultPromise = brokenPromptList(createState(SCANNED), { title: 't', stdin, stdout });
+        stdin.write(' '); // any mapped key reaches reduce() and throws
+        await assert.rejects(resultPromise, /reduce broke/);
+        assert.equal(written[written.length - 1], '\u001b[?25h', 'the cursor was shown again before the rejection');
+    } finally {
+        listStateModule.reduce = originalReduce;
+        delete require.cache[checkboxListPath];
+        require(checkboxListPath);
+    }
+});
+
+test('an error event on stdin still restores the terminal before the promise rejects', async () => {
+    const { stdin, stdout, written } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+    const boom = new Error('stdin broke');
+    stdin.emit('error', boom);
+    await assert.rejects(resultPromise, boom);
+    assert.equal(written[written.length - 1], '\u001b[?25h', 'the cursor was shown again before the rejection');
+});
