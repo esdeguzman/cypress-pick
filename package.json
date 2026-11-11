@@ -1,0 +1,36 @@
+{
+  "name": "cypress-pick",
+  "version": "0.1.0",
+  "description": "Tick the Cypress specs and contexts you want, then run only those",
+  "license": "MIT",
+  "author": "Esmeraldo de Guzman Jr",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "cypress-pick": "bin/cypress-pick.js"
+  },
+  "exports": {
+    ".": "./src/cli.js",
+    "./support": "./support/index.js",
+    "./runner": "./runner.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "src",
+    "support",
+    "runner.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "cypress",
+    "cypress-plugin",
+    "test-runner",
+    "interactive"
+  ]
+}
