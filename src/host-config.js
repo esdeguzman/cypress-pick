@@ -5,10 +5,12 @@ const path = require('node:path');
 
 // What the picker needs to know about the project it was run inside.
 //
-// The Cypress config is loaded with require, which works for a CommonJS config and
-// not for a TypeScript or module one. When it cannot be loaded the Cypress defaults
-// are used and the caller is told, so it can say so rather than appear to have found
-// nothing.
+// The Cypress config is loaded with require. Whether a TypeScript config can be
+// loaded this way depends on the Node version running the command, not on the file
+// being TypeScript: Node 22.6 and later strip the types and load it like any other
+// config, an earlier Node cannot load it at all. Either way, when the config cannot
+// be loaded the Cypress defaults are used and the caller is told, so it can say so
+// rather than appear to have found nothing.
 
 const DEFAULT_SPEC_PATTERN = 'cypress/e2e/**/*.cy.{js,jsx,ts,tsx}';
 const DEFAULT_SUPPORT_FILE = 'cypress/support/e2e.js';

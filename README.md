@@ -57,6 +57,33 @@ Or add a script, which is shorter to type:
 }
 ```
 
+## How it finds your specs
+
+The picker reads the project's Cypress config to find where the spec files are.
+
+Whether a TypeScript config can be read depends on the version of Node running the
+command, not on the file being TypeScript. Node 22.6 and later load it. Earlier
+versions cannot, and the picker then uses Cypress's own default locations and prints a
+line saying it did.
+
+The `--spec-pattern` option overrides both the config and the default, if you want to
+point it somewhere else without changing either.
+
+## Options
+
+```
+cypress-pick [options] [-- any cypress run flags]
+```
+
+| Option | What it does |
+|---|---|
+| `--spec-pattern <glob>` | Where to look for spec files, instead of the pattern in the Cypress config |
+| `--cwd <path>` | The project to read, instead of the folder you ran it from |
+| `-h`, `--help` | Show the help text |
+
+Anything after `--` is passed through to `cypress run`, for example
+`cypress-pick -- --browser chrome`.
+
 ## What ticking means
 
 | You do this | What runs |
@@ -106,8 +133,9 @@ with the `CYPRESS_` prefix, because Cypress claims that prefix for its own setti
 
 No spec file is ever edited, moved or written to.
 
-A context carrying `.skip` is shown greyed and cannot be ticked, because ticking it
-would promise tests that will not run.
+A context carrying `.skip` gets a dash where its checkbox would be, and the word
+"skipped" printed after it, as in the sample list above. It cannot be ticked, because
+ticking it would promise tests that will not run.
 
 A context carrying `.only` is flagged, and a line prints before the run saying what
 will actually happen, for example:
