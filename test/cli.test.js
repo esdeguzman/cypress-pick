@@ -44,9 +44,10 @@ test('a typed --spec still keeps the filter flag, dropping only the spec pair', 
     assert.deepEqual(args.slice(2), ['--spec', 'typed.cy.js']);
 });
 
-// Finding 3: ticking more than one run mode must refuse rather than silently pick
-// the first one, and ticking none must say so rather than behaving exactly like a
-// deliberate choice of "run cypress directly".
+// Finding 3: ticking more than one run mode must refuse to run at all and say so,
+// instead of picking the first ticked row without telling the person. Ticking none
+// must say so too, rather than behaving exactly like a deliberate choice of "run
+// cypress directly".
 
 const scriptRow = (name) => ({ name });
 const specRow = (checked) => ({ checked });
