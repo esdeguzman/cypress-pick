@@ -72,4 +72,37 @@ test('a suite declared with a config object is still read', () => {
     const { suites } = scanFile(fixture('tricky.cy.js'));
     assert.equal(suites[0].title, 'Root');
     assert.equal(suites[0].depth, 0);
+    // Root holds every test in the file: 1 in Quoted, 1 in the template suite,
+    // 2 in Only this one, and the specify. A config object argument between the
+    // title and the callback must not stop these from being counted as Root's.
+    assert.equal(suites[0].tests, 5);
+    const children = suites.slice(1);
+    assert.equal(children.length, 3);
+    for (const child of children) {
+        assert.equal(child.depth, 1);
+        assert.equal(child.path[0], 'Root');
+    }
+});
+
+test('a regex containing an apostrophe does not open a string', () => {
+    const { suites } = scanFile(fixture('regex.cy.js'));
+    const titles = suites.map((s) => s.title);
+    assert.ok(titles.includes('Apostrophe inside a regex'));
+    assert.ok(titles.includes('Unmatched brace inside a regex'));
+    assert.ok(titles.includes('Division is not a regex'));
+});
+
+test('a regex containing an unmatched brace does not close its suite early', () => {
+    const { suites } = scanFile(fixture('regex.cy.js'));
+    const target = suites.find((s) => s.title === 'Unmatched brace inside a regex');
+    assert.equal(target.depth, 1);
+    assert.equal(target.path[0], 'Regex traps');
+    assert.equal(target.tests, 1);
+});
+
+test('a division expression is read as division, not as the start of a regex', () => {
+    const { suites, tests } = scanFile(fixture('regex.cy.js'));
+    assert.equal(tests, 3);
+    const outer = suites.find((s) => s.title === 'Regex traps');
+    assert.equal(outer.tests, 3);
 });

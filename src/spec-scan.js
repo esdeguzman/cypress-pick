@@ -76,12 +76,100 @@ function skipTemplateLiteral(source, i) {
     return source.length;
 }
 
+// Skips a brace-delimited argument such as a config object, starting at the
+// opening `{` at `i`. Returns the index of the matching closing brace. Strings,
+// templates and comments inside it are skipped the same way the main scan
+// skips them, so a brace written inside one of those is never counted.
+function skipBraced(source, i) {
+    let braces = 0;
+    let j = i;
+    while (j < source.length) {
+        const c = source[j];
+        if (c === '/' && source[j + 1] === '/') {
+            const nl = source.indexOf('\n', j);
+            j = nl === -1 ? source.length : nl;
+            continue;
+        }
+        if (c === '/' && source[j + 1] === '*') {
+            const end = source.indexOf('*/', j + 2);
+            j = end === -1 ? source.length : end + 2;
+            continue;
+        }
+        if (c === "'" || c === '"') {
+            const quoted = readQuoted(source, j);
+            j = quoted ? quoted.end + 1 : j + 1;
+            continue;
+        }
+        if (c === '`') {
+            j = skipTemplateLiteral(source, j) + 1;
+            continue;
+        }
+        if (c === '{') {
+            braces += 1;
+            j += 1;
+            continue;
+        }
+        if (c === '}') {
+            braces -= 1;
+            if (braces === 0) return j;
+            j += 1;
+            continue;
+        }
+        j += 1;
+    }
+    return source.length - 1;
+}
+
+// True when a `/` found right after `lastSignificant` opens a regex literal
+// rather than a division. Telling the two apart needs the previous significant
+// (non comment, non whitespace) character: a regex can follow an operator, a
+// bracket or the start of the file, a division follows a value.
+function isRegexContext(lastSignificant) {
+    return lastSignificant === '' || '(,=:[!&|?{};'.includes(lastSignificant);
+}
+
+// Skips a regex literal that opens at `i`. A character class, [...], can hold
+// an unescaped slash that does not close the literal, so it is tracked
+// separately. Flags such as g or i follow the closing slash and are skipped
+// too, so the scan does not restart mid flag. Returns the index of the last
+// character read: the closing slash, or its last flag.
+function skipRegexLiteral(source, i) {
+    let j = i + 1;
+    let inClass = false;
+    while (j < source.length) {
+        const c = source[j];
+        if (c === '\\') {
+            j += 2;
+            continue;
+        }
+        if (c === '\n') return j - 1; // an unterminated regex; stop at the line
+        if (c === '[') {
+            inClass = true;
+            j += 1;
+            continue;
+        }
+        if (c === ']') {
+            inClass = false;
+            j += 1;
+            continue;
+        }
+        if (c === '/' && !inClass) {
+            j += 1;
+            while (j < source.length && /[a-z]/i.test(source[j])) j += 1;
+            return j - 1;
+        }
+        j += 1;
+    }
+    return source.length - 1;
+}
+
 function scanSource(source) {
     const suites = [];
     const open = []; // suites whose body we are inside, innermost last
     let depth = 0;   // curly brace depth
     let tests = 0;
     let i = 0;
+    let lastSignificant = ''; // last non comment, non whitespace character read
 
     const closeFinished = () => {
         while (open.length > 0 && depth <= open[open.length - 1].braceDepth) {
@@ -104,11 +192,22 @@ function scanSource(source) {
             continue;
         }
 
+        // A regex literal. Checked before strings, since `/` is not a quote
+        // character, and before the general punctuation fallback, since a slash
+        // written inside a regex must not be read as division partway through.
+        if (c === '/' && isRegexContext(lastSignificant)) {
+            const end = skipRegexLiteral(source, i);
+            lastSignificant = source[end];
+            i = end + 1;
+            continue;
+        }
+
         // Strings that are not a suite title. Skipping them whole is what keeps a
         // string such as "context('fake')" from being counted.
         if (c === "'" || c === '"' || c === '`') {
             const quoted = readQuoted(source, i);
             if (quoted) {
+                lastSignificant = source[quoted.end];
                 i = quoted.end + 1;
                 continue;
             }
@@ -116,23 +215,28 @@ function scanSource(source) {
                 // A template with a substitution in it. Skip the whole literal as
                 // one unit, so a brace inside the substitution is never mistaken
                 // for one of the file's own.
-                i = skipTemplateLiteral(source, i) + 1;
+                const end = skipTemplateLiteral(source, i);
+                lastSignificant = source[end];
+                i = end + 1;
                 continue;
             }
             // An unterminated string. Step past the opening quote and carry on
             // rather than stopping the scan.
+            lastSignificant = c;
             i += 1;
             continue;
         }
 
         if (c === '{') {
             depth += 1;
+            lastSignificant = c;
             i += 1;
             continue;
         }
         if (c === '}') {
             depth -= 1;
             closeFinished();
+            lastSignificant = c;
             i += 1;
             continue;
         }
@@ -190,13 +294,36 @@ function scanSource(source) {
                     } else {
                         i = k + 1;
                     }
+
+                    if (SUITE_WORDS.includes(word)) {
+                        // Cypress allows a config object between the title and the
+                        // callback, for example describe('Title', { expose: {...}
+                        // }, () => {}). braceDepth was just recorded as the depth
+                        // OUTSIDE this call, before the callback's own body opens.
+                        // Left to the main loop, the config object's own closing
+                        // brace brings depth back down to that exact number, and
+                        // closeFinished reads that as the suite's own body closing
+                        // before it has even started. Skipping the object here as
+                        // one unit, the same way skipTemplateLiteral skips a
+                        // substitution, keeps depth from ever touching that number
+                        // until the real body brace is reached.
+                        let p = i;
+                        while (p < source.length && /[\s,]/.test(source[p])) p += 1;
+                        if (source[p] === '{') {
+                            i = skipBraced(source, p) + 1;
+                        }
+                    }
+
+                    lastSignificant = source[i - 1];
                     continue;
                 }
             }
+            lastSignificant = word[word.length - 1];
             i = j;
             continue;
         }
 
+        if (!/\s/.test(c)) lastSignificant = c;
         i += 1;
     }
 
