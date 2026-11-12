@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { PassThrough } = require('node:stream');
 const { composeCypressArgs, decideHow, typedSpecNotice, main } = require('../src/cli');
 
 // Finding 2: a typed --spec must win over the picked one, the same rule
@@ -120,4 +121,79 @@ test('I6: the config notice is printed before the no-spec-files exit', async () 
     assert.match(output, /config could not be read/);
     assert.match(output, /No spec files found/);
     assert.ok(output.indexOf('config could not be read') < output.indexOf('No spec files found'));
+});
+
+// The headless key runs Cypress and never draws the mode list. The project built
+// here has a runnable script, so pressing enter instead would have drawn it.
+// Cypress is not installed in a temporary folder, so the run stops there and the
+// exit code is 1. The spec is ticked first, so that 1 can only have come from the
+// Cypress path: the other way to get a 1 is the refusal for nothing ticked, and
+// that message is checked for and must not be there.
+//
+// The "Cypress is not installed" line itself is not checked, because runCypress
+// writes it to process.stdout rather than to the stdout passed in, so it never
+// reaches the array below.
+
+function fakeTty() {
+    const stdin = new PassThrough();
+    stdin.isTTY = true;
+    stdin.setRawMode = () => {};
+    return stdin;
+}
+
+function tinyProject() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cypick-headless-'));
+    fs.mkdirSync(path.join(dir, 'cypress', 'e2e'), { recursive: true });
+    fs.writeFileSync(
+        path.join(dir, 'cypress.config.js'),
+        "module.exports = { e2e: { specPattern: 'cypress/e2e/**/*.cy.js' } };\n"
+    );
+    fs.writeFileSync(
+        path.join(dir, 'cypress', 'e2e', 'one.cy.js'),
+        "describe('Root', () => { it('works', () => {}); });\n"
+    );
+    fs.writeFileSync(
+        path.join(dir, 'package.json'),
+        JSON.stringify({ name: 'tiny', scripts: { headless: 'cypress run' } })
+    );
+    return dir;
+}
+
+test('h runs cypress and never draws the mode list', async () => {
+    const dir = tinyProject();
+    const stdin = fakeTty();
+    const written = [];
+    const codePromise = main([], {
+        cwd: dir,
+        stdout: { write: (text) => written.push(text) },
+        stdin,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve)); // let the first draw happen
+    stdin.write(' '); // tick the one spec
+    stdin.write('h');
+
+    const code = await codePromise;
+    const output = written.join('');
+    assert.ok(!output.includes('How should it run?'), 'the mode list was never drawn');
+    assert.ok(!output.includes('Nothing was ticked'), 'the spec was ticked, so this is not the refusal');
+    assert.equal(code, 1, 'the run reached Cypress, which is not installed in a temporary folder');
+});
+
+test('h with nothing ticked refuses, the same way enter does', async () => {
+    const dir = tinyProject();
+    const stdin = fakeTty();
+    const written = [];
+    const codePromise = main([], {
+        cwd: dir,
+        stdout: { write: (text) => written.push(text) },
+        stdin,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    stdin.write('h'); // no tick first
+
+    const code = await codePromise;
+    assert.match(written.join(''), /Nothing was ticked, so nothing was run/);
+    assert.equal(code, 1);
 });

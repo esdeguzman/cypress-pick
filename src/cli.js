@@ -152,7 +152,7 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
 
     const total = scanned.reduce((sum, s) => sum + s.tests, 0);
     const title = 'cypress-pick        ' + files.length + ' specs, ' + total + ' tests';
-    const picked = await promptList(createState(scanned), { title, stdout, stdin });
+    const picked = await promptList(createState(scanned), { title, stdout, stdin, allowHeadless: true });
     if (!picked) { stdout.write('\n  Nothing run.\n'); return 0; }
     const state = picked.state;
 
@@ -173,7 +173,11 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
         hostPackage = {};
     }
     const scripts = runnableScripts(hostPackage);
-    const outcome = scripts.length === 0
+    // The headless key is an answer to the question chooseHow asks, given before it
+    // was asked, so the question is not asked. It is the same answer a project with
+    // no runnable scripts gets, which is why both reach the same value here.
+    const skipTheQuestion = picked.accept === 'headless' || scripts.length === 0;
+    const outcome = skipTheQuestion
         ? { how: { kind: 'cypress' }, message: null }
         : await chooseHow(scripts, { stdout, stdin });
     if (!outcome) { stdout.write('\n  Nothing run.\n'); return 0; }
