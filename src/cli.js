@@ -96,13 +96,13 @@ async function chooseHow(scripts, { stdout, stdin }) {
     const choices = [{ relative: 'run cypress directly', tests: 0, suites: [] }].concat(
         scripts.map((s) => ({ relative: 'npm run ' + s.name, tests: 0, suites: [] }))
     );
-    const state = await promptList(createState(choices), {
+    const picked = await promptList(createState(choices), {
         title: 'How should it run? Move to one, press space, then enter.',
         stdout,
         stdin,
     });
-    if (!state) return null;
-    return decideHow(state, scripts);
+    if (!picked) return null;
+    return decideHow(picked.state, scripts);
 }
 
 async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin = process.stdin } = {}) {
@@ -152,8 +152,9 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
 
     const total = scanned.reduce((sum, s) => sum + s.tests, 0);
     const title = 'cypress-pick        ' + files.length + ' specs, ' + total + ' tests';
-    const state = await promptList(createState(scanned), { title, stdout, stdin });
-    if (!state) { stdout.write('\n  Nothing run.\n'); return 0; }
+    const picked = await promptList(createState(scanned), { title, stdout, stdin });
+    if (!picked) { stdout.write('\n  Nothing run.\n'); return 0; }
+    const state = picked.state;
 
     const selection = buildSelection(toPickedSpecs(state));
     if (selection.specs.length === 0) {

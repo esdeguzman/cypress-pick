@@ -107,7 +107,7 @@ test('moving down and ticking with space checks the second spec', async () => {
     stdin.write(' '); // tick spec b
     stdin.write('\r'); // accept
 
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state, 'enter resolves with the state, not null');
     assert.equal(state.cursor, 1);
     const rows = visibleRows(state);
@@ -124,7 +124,7 @@ test('opening a spec with the right arrow then ticking one context', async () =>
     stdin.write(' '); // tick it
     stdin.write('\n'); // accept, the other accept key
 
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state);
     const rows = visibleRows(state);
     assert.equal(rows[0].mark, '~', 'spec a is partial: one of its two tickable contexts is on');
@@ -153,9 +153,19 @@ test('enter resolves with the state as it stands', async () => {
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
     stdin.write(' '); // tick spec a first, so the resolved state is not just the start state
     stdin.write('\r');
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state);
     assert.equal(visibleRows(state)[0].mark, 'x');
+});
+
+test('enter resolves with an accept of ask alongside the state', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+    stdin.write(' '); // tick spec a, so the state carried back is not the start state
+    stdin.write('\r');
+    const result = await resultPromise;
+    assert.equal(result.accept, 'ask');
+    assert.equal(visibleRows(result.state)[0].mark, 'x');
 });
 
 test('a ticks everything and n unticks everything', async () => {
@@ -163,7 +173,7 @@ test('a ticks everything and n unticks everything', async () => {
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
     stdin.write('a');
     stdin.write('\r');
-    const tickedAll = await resultPromise;
+    const { state: tickedAll } = await resultPromise;
     assert.deepEqual(visibleRows(tickedAll).map((r) => r.mark), ['x', 'x']);
 
     const { stdin: stdin2, stdout: stdout2 } = fakeTerminal();
@@ -171,7 +181,7 @@ test('a ticks everything and n unticks everything', async () => {
     stdin2.write('a');
     stdin2.write('n');
     stdin2.write('\r');
-    const untickedAll = await resultPromise2;
+    const { state: untickedAll } = await resultPromise2;
     assert.deepEqual(visibleRows(untickedAll).map((r) => r.mark), [' ', ' ']);
 });
 
@@ -199,7 +209,7 @@ test('an unknown key changes nothing', async () => {
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
     stdin.write('z'); // not in KEYS, not a quit key, not an accept key
     stdin.write('\r');
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state);
     assert.equal(state.cursor, 0);
     assert.equal(visibleRows(state)[0].mark, ' ');
@@ -243,7 +253,7 @@ test('the up arrow moves the cursor up', async () => {
     stdin.write('\u001b[B'); // down first, so moving up again is a visible change
     stdin.write('\u001b[A'); // up, back to the top
     stdin.write('\r');
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state);
     assert.equal(state.cursor, 0);
 });
@@ -254,7 +264,7 @@ test('the left arrow closes an open spec', async () => {
     stdin.write('\u001b[C'); // open spec a, its contexts are now drawn
     stdin.write('\u001b[D'); // close it again
     stdin.write('\r');
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state);
     assert.deepEqual(visibleRows(state).map((r) => r.kind), ['spec', 'spec'], 'the contexts are hidden again');
 });
@@ -275,7 +285,7 @@ test('a split up arrow, the escape byte then the rest in a second chunk, moves t
     stdin.write('[A'); // the rest of the sequence, in a second chunk
     stdin.write('\r');
 
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state, 'the picker did not quit when the escape byte arrived on its own');
     assert.equal(state.cursor, 0, 'the split up arrow still moved the cursor back to the top');
 });
@@ -288,7 +298,7 @@ test('a split down arrow, the escape and the bracket then the letter in a second
     stdin.write('B'); // the letter, in a second chunk
     stdin.write('\r');
 
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state);
     assert.equal(state.cursor, 1, 'the split down arrow moved the cursor from spec a to spec b');
 });
@@ -301,7 +311,7 @@ test('a held escape byte followed by an unrelated key is dropped, not quitting a
     stdin.write('z'); // an unrelated key, not the rest of any known sequence
     stdin.write('\r');
 
-    const state = await resultPromise;
+    const { state } = await resultPromise;
     assert.ok(state, 'the picker did not quit');
     assert.equal(state.cursor, 0, 'neither byte moved the cursor');
     assert.equal(visibleRows(state)[0].mark, ' ', 'nothing was ticked either');

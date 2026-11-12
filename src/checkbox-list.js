@@ -59,6 +59,9 @@ function renderLines(state, { title, width = 78 } = {}) {
 // Reads keys until the user accepts or quits. Everything it does to the terminal is
 // undone before it returns, including on Ctrl+C and on an exception, because a
 // terminal left in raw mode with the cursor hidden is unusable afterwards.
+//
+// Quitting resolves null. Accepting resolves { state, accept }, because there is
+// more than one way to accept and the caller has to be able to tell them apart.
 function promptList(state, { title, stdin = process.stdin, stdout = process.stdout } = {}) {
     return new Promise((resolve, reject) => {
         let current = state;
@@ -95,7 +98,7 @@ function promptList(state, { title, stdin = process.stdin, stdout = process.stdo
             }
             if (ACCEPT_KEYS.includes(text)) {
                 restore();
-                resolve(current);
+                resolve({ state: current, accept: 'ask' });
                 return true;
             }
             const action = KEYS[text];

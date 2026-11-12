@@ -24,11 +24,12 @@ const scanned = fs.readdirSync(dir).filter((f) => f.endsWith('.cy.js')).map((f) 
     };
 });
 
-promptList(createState(scanned), { title: 'demo, nothing will run' }).then((state) => {
-    if (!state) {
+promptList(createState(scanned), { title: 'demo, nothing will run' }).then((picked) => {
+    if (!picked) {
         console.log('quit');
         return;
     }
+    const state = picked.state;
     console.log('');
     for (const line of warnings(state)) console.log('  ' + line);
     console.log('  args:', buildArgs(buildSelection(toPickedSpecs(state)), { cypressMajor: 16 }).join(' '));
