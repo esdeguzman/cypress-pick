@@ -2,7 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { composeCypressArgs, decideHow } = require('../src/cli');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { composeCypressArgs, decideHow, typedSpecNotice, main } = require('../src/cli');
 
 // Finding 2: a typed --spec must win over the picked one, the same rule
 // runner.js already applies to the other run path. buildArgs always puts the
@@ -80,4 +83,41 @@ test('ticking more than one row refuses instead of guessing which one was meant'
     assert.equal(outcome.how, null);
     assert.equal(typeof outcome.message, 'string');
     assert.equal(outcome.message.length > 0, true);
+});
+
+// Finding I3. A typed spec wins, which is right, but the picked ones were thrown
+// away without a word. The person sees a run of something they did not tick.
+
+test('I3: a typed spec produces a line saying the ticked ones were not used', () => {
+    const notice = typedSpecNotice(['--spec', 'typed.cy.js'], { specs: ['picked.cy.js'] });
+    assert.equal(typeof notice, 'string');
+    assert.match(notice, /typed\.cy\.js/);
+    assert.match(notice, /picked\.cy\.js/);
+});
+
+test('I3: no typed spec means no line', () => {
+    assert.equal(typedSpecNotice(['--browser', 'chrome'], { specs: ['picked.cy.js'] }), null);
+});
+
+test('I3: the short form and the equals form are noticed too', () => {
+    assert.equal(typeof typedSpecNotice(['-s', 'typed.cy.js'], { specs: ['a'] }), 'string');
+    assert.equal(typeof typedSpecNotice(['--spec=typed.cy.js'], { specs: ['a'] }), 'string');
+});
+
+// Finding I6. The notice about the config explains the pattern that the next line
+// complains about, so it has to come first.
+
+test('I6: the config notice is printed before the no-spec-files exit', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cypick-cli-'));
+    fs.writeFileSync(path.join(dir, 'cypress.config.js'), "throw new Error('deliberate failure for this test')");
+    const written = [];
+    const code = await main(['--cwd', dir], {
+        stdout: { write: (text) => written.push(text) },
+        stdin: { isTTY: false },
+    });
+    const output = written.join('');
+    assert.equal(code, 1);
+    assert.match(output, /config could not be read/);
+    assert.match(output, /No spec files found/);
+    assert.ok(output.indexOf('config could not be read') < output.indexOf('No spec files found'));
 });

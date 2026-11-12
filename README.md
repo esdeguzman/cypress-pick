@@ -62,9 +62,9 @@ Or add a script, which is shorter to type:
 The picker reads the project's Cypress config to find where the spec files are.
 
 Whether a TypeScript config can be read depends on the version of Node running the
-command, not on the file being TypeScript. Node 22.6 and later load it. Earlier
-versions cannot, and the picker then uses Cypress's own default locations and prints a
-line saying it did.
+command, not on the file being TypeScript. Node 22.18 and later, and Node 23.6 and
+later, load it. Earlier versions cannot, and the picker then uses Cypress's own
+default locations and prints a line saying it did.
 
 The `--spec-pattern` option overrides both the config and the default, if you want to
 point it somewhere else without changing either.

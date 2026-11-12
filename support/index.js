@@ -33,69 +33,149 @@ function readFilterText(cy) {
     return null;
 }
 
+const NOTHING_PICKED = { include: [], exclude: [], present: false };
+
 // The picker writes spec paths with forward slashes. Cypress reports the running
 // spec with the separator the operating system uses, which is a backslash on
 // Windows, so one of the two has to be made to match the other.
 function selectedFor(filter, relative) {
-    if (!filter || !relative) return [];
-    return filter[relative.replace(/\\/g, '/')] || [];
+    if (!filter || !relative) return NOTHING_PICKED;
+    const entry = filter[relative.replace(/\\/g, '/')];
+    if (!entry) return NOTHING_PICKED;
+    // A plain list is what an older version of the command wrote, before the
+    // unticked contexts started travelling alongside the ticked ones.
+    if (Array.isArray(entry)) return { include: entry, exclude: [], present: true };
+    return { include: entry.include || [], exclude: entry.exclude || [], present: true };
 }
 
-function installFilter({ globals, selected }) {
-    if (!selected || selected.length === 0) return;
+function describePath(path) {
+    return path.join(' > ');
+}
+
+// Runs the check once the spec file has been read. A microtask runs at the end of
+// the current piece of synchronous work, and the check is only ever scheduled from
+// inside a suite call, so that piece of work is the spec file itself. Scheduling it
+// when the filter is installed would be too early: the support file is loaded first,
+// and its microtasks run before the spec file is even fetched.
+function afterTheSpecFileIsRead(fn) {
+    if (typeof queueMicrotask === 'function') queueMicrotask(fn);
+    else setTimeout(fn, 0);
+}
+
+function installFilter({ globals, selected, excluded, spec, schedule }) {
+    const picked = selected || [];
+    const dropped = excluded || [];
+    if (picked.length === 0) return { matchedCount: () => 0, assertSomethingMatched: () => {} };
 
     const stack = [];
+    let matched = 0;
+    let checkScheduled = false;
+    // How many only suites the scan is currently inside. Above zero, nothing is
+    // filtered out, because Mocha's only has already decided what runs.
+    let insideOnly = 0;
 
-    const wrapSuite = (original) => {
-        const wrapped = function (title, ...rest) {
-            const path = stack.concat(String(title));
-            if (!shouldRegisterSuite(path, selected)) return undefined;
-
-            const last = rest[rest.length - 1];
-            if (typeof last !== 'function') return original.call(this, title, ...rest);
-
-            const body = rest.slice();
-            body[body.length - 1] = function (...args) {
-                stack.push(String(title));
-                try {
-                    return last.apply(this, args);
-                } finally {
-                    stack.pop();
-                }
-            };
-            return original.call(this, title, ...body);
-        };
-        // only and skip keep their own meaning, so they are passed through untouched.
-        wrapped.only = original.only;
-        wrapped.skip = original.skip;
-        return wrapped;
+    // A filter that matches nothing leaves the run with no tests, and Cypress then
+    // exits reporting no failures. That is the outcome this package exists to
+    // prevent, so the spec is stopped instead. A spec that fails to load is loud.
+    const assertSomethingMatched = () => {
+        if (matched > 0) return;
+        throw new Error(
+            'cypress-pick: none of the contexts picked for ' + (spec || 'this spec') +
+            ' were found, so the run would have had no tests. Picked: ' +
+            picked.map((path) => '"' + describePath(path) + '"').join(', ') +
+            '. The spec may have changed since it was picked. Run it again without the picker, ' +
+            'or pick it again.'
+        );
     };
 
-    const wrapTest = (original) => {
-        const wrapped = function (title, ...rest) {
-            if (!shouldRegisterTest(stack.slice(), selected)) return undefined;
-            return original.call(this, title, ...rest);
+    const scheduleCheck = () => {
+        if (checkScheduled) return;
+        checkScheduled = true;
+        (schedule || afterTheSpecFileIsRead)(assertSomethingMatched);
+    };
+
+    // Runs the suite's body with its title added to the stack, so that everything
+    // inside it is judged against the full chain of titles it really sits in.
+    // `countsAsOnly` keeps that stack honest for an only suite as well.
+    const withTitleOnStack = (title, rest, last, countsAsOnly) => {
+        const body = rest.slice();
+        body[body.length - 1] = function (...args) {
+            stack.push(String(title));
+            if (countsAsOnly) insideOnly += 1;
+            try {
+                return last.apply(this, args);
+            } finally {
+                if (countsAsOnly) insideOnly -= 1;
+                stack.pop();
+            }
         };
-        wrapped.only = original.only;
-        wrapped.skip = original.skip;
-        return wrapped;
+        return body;
+    };
+
+    const wrapSuite = (original) => function (title, ...rest) {
+        scheduleCheck();
+        const path = stack.concat(String(title));
+        if (shouldRegisterTest(path, picked, dropped)) matched += 1;
+        if (insideOnly === 0 && !shouldRegisterSuite(path, picked, dropped)) return undefined;
+
+        const last = rest[rest.length - 1];
+        if (typeof last !== 'function') return original.call(this, title, ...rest);
+        return original.call(this, title, ...withTitleOnStack(title, rest, last, false));
+    };
+
+    // Mocha's only beats anything this package does, and the command warns about
+    // that rather than trying to defeat it. So an only suite is handed straight to
+    // Mocha's own only, and nothing inside it is filtered out.
+    //
+    // It still has to be wrapped for one reason: the title has to go on the stack
+    // while the body runs. Without that, every test inside an only suite was judged
+    // against a stack that did not contain it, so the suite registered with no tests
+    // in it at all, and Mocha then ran that empty suite and nothing else.
+    const wrapOnly = (original) => function (title, ...rest) {
+        scheduleCheck();
+        if (shouldRegisterTest(stack.concat(String(title)), picked, dropped)) matched += 1;
+        const last = rest[rest.length - 1];
+        if (typeof last !== 'function') return original.call(this, title, ...rest);
+        return original.call(this, title, ...withTitleOnStack(title, rest, last, true));
+    };
+
+    const wrapTest = (original) => function (title, ...rest) {
+        if (insideOnly === 0 && !shouldRegisterTest(stack.slice(), picked, dropped)) return undefined;
+        return original.call(this, title, ...rest);
     };
 
     for (const name of ['describe', 'context']) {
-        if (typeof globals[name] === 'function') globals[name] = wrapSuite(globals[name]);
+        if (typeof globals[name] !== 'function') continue;
+        const original = globals[name];
+        const wrapped = wrapSuite(original);
+        wrapped.only = typeof original.only === 'function' ? wrapOnly(original.only) : original.only;
+        wrapped.skip = original.skip;
+        globals[name] = wrapped;
     }
     for (const name of ['it', 'specify']) {
-        if (typeof globals[name] === 'function') globals[name] = wrapTest(globals[name]);
+        if (typeof globals[name] !== 'function') continue;
+        const original = globals[name];
+        const wrapped = wrapTest(original);
+        // A test carrying only is Mocha's decision too, so it is passed through.
+        wrapped.only = original.only;
+        wrapped.skip = original.skip;
+        globals[name] = wrapped;
     }
+
+    return { matchedCount: () => matched, assertSomethingMatched };
 }
 
 // Runs when a host project imports this file. Guarded so that requiring the module
 // in Node, which the tests do, installs nothing.
 if (typeof Cypress !== 'undefined' && typeof window !== 'undefined') {
     const filter = decode(readFilterText(Cypress));
+    const relative = Cypress.spec && Cypress.spec.relative;
+    const entry = selectedFor(filter, relative);
     installFilter({
         globals: window,
-        selected: selectedFor(filter, Cypress.spec && Cypress.spec.relative),
+        selected: entry.include,
+        excluded: entry.exclude,
+        spec: relative,
     });
 }
 

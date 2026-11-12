@@ -16,6 +16,16 @@ const fs = require('node:fs');
 const SUITE_WORDS = ['describe', 'context'];
 const TEST_WORDS = ['it', 'specify'];
 
+// Words after which a slash starts a regular expression rather than a division.
+const REGEX_MAY_FOLLOW = [
+    'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
+    'case', 'do', 'else', 'yield', 'await', 'throw',
+];
+
+// Punctuation after which a slash starts a regular expression. A division follows
+// a value, so a name, a number, a closing bracket or a closing quote is not here.
+const REGEX_MAY_FOLLOW_PUNCTUATION = '(,=:[!&|?{};+-*%<>~^';
+
 function isWordChar(c) {
     return /[A-Za-z0-9_$]/.test(c);
 }
@@ -76,56 +86,21 @@ function skipTemplateLiteral(source, i) {
     return source.length;
 }
 
-// Skips a brace-delimited argument such as a config object, starting at the
-// opening `{` at `i`. Returns the index of the matching closing brace. Strings,
-// templates and comments inside it are skipped the same way the main scan
-// skips them, so a brace written inside one of those is never counted.
-function skipBraced(source, i) {
-    let braces = 0;
-    let j = i;
-    while (j < source.length) {
-        const c = source[j];
-        if (c === '/' && source[j + 1] === '/') {
-            const nl = source.indexOf('\n', j);
-            j = nl === -1 ? source.length : nl;
-            continue;
-        }
-        if (c === '/' && source[j + 1] === '*') {
-            const end = source.indexOf('*/', j + 2);
-            j = end === -1 ? source.length : end + 2;
-            continue;
-        }
-        if (c === "'" || c === '"') {
-            const quoted = readQuoted(source, j);
-            j = quoted ? quoted.end + 1 : j + 1;
-            continue;
-        }
-        if (c === '`') {
-            j = skipTemplateLiteral(source, j) + 1;
-            continue;
-        }
-        if (c === '{') {
-            braces += 1;
-            j += 1;
-            continue;
-        }
-        if (c === '}') {
-            braces -= 1;
-            if (braces === 0) return j;
-            j += 1;
-            continue;
-        }
-        j += 1;
-    }
-    return source.length - 1;
+// True when a `/` found right after `lastToken` opens a regex literal rather than
+// a division. Telling the two apart needs the token before it, not just the
+// character: a regex can follow an operator, a bracket, an arrow, a keyword such
+// as return, or the start of the file, while a division follows a value.
+function isRegexContext(lastToken) {
+    if (!lastToken) return true;
+    if (lastToken === '=>') return true;
+    if (REGEX_MAY_FOLLOW.includes(lastToken)) return true;
+    return lastToken.length === 1 && REGEX_MAY_FOLLOW_PUNCTUATION.includes(lastToken);
 }
 
-// True when a `/` found right after `lastSignificant` opens a regex literal
-// rather than a division. Telling the two apart needs the previous significant
-// (non comment, non whitespace) character: a regex can follow an operator, a
-// bracket or the start of the file, a division follows a value.
-function isRegexContext(lastSignificant) {
-    return lastSignificant === '' || '(,=:[!&|?{};'.includes(lastSignificant);
+// Records the punctuation just read as the last token. The arrow is kept whole,
+// because a regex may follow one and may not follow a plain greater-than.
+function punctuationToken(lastToken, c) {
+    return c === '>' && lastToken === '=' ? '=>' : c;
 }
 
 // Skips a regex literal that opens at `i`. A character class, [...], can hold
@@ -163,13 +138,100 @@ function skipRegexLiteral(source, i) {
     return source.length - 1;
 }
 
+// Skips a brace-delimited argument such as a config object, starting at the
+// opening `{` at `i`. Returns the index of the matching closing brace. Strings,
+// templates, comments and regular expressions inside it are skipped the same way
+// the main scan skips them, so a brace or a quote written inside one of those is
+// never counted. A regex used to be missed here, and an apostrophe inside one then
+// opened a string that ran on to the end of the file, taking every context after
+// it out of the list.
+function skipBraced(source, i) {
+    let braces = 0;
+    let j = i;
+    let lastToken = '';
+    while (j < source.length) {
+        const c = source[j];
+        if (c === '/' && source[j + 1] === '/') {
+            const nl = source.indexOf('\n', j);
+            j = nl === -1 ? source.length : nl;
+            continue;
+        }
+        if (c === '/' && source[j + 1] === '*') {
+            const end = source.indexOf('*/', j + 2);
+            j = end === -1 ? source.length : end + 2;
+            continue;
+        }
+        if (c === '/' && isRegexContext(lastToken)) {
+            const end = skipRegexLiteral(source, j);
+            lastToken = source[end];
+            j = end + 1;
+            continue;
+        }
+        if (c === "'" || c === '"') {
+            const quoted = readQuoted(source, j);
+            j = quoted ? quoted.end + 1 : j + 1;
+            lastToken = c;
+            continue;
+        }
+        if (c === '`') {
+            j = skipTemplateLiteral(source, j) + 1;
+            lastToken = c;
+            continue;
+        }
+        if (isWordChar(c) && !isWordChar(source[j - 1] || '')) {
+            let k = j;
+            while (k < source.length && isWordChar(source[k])) k += 1;
+            lastToken = source.slice(j, k);
+            j = k;
+            continue;
+        }
+        if (c === '{') {
+            braces += 1;
+            lastToken = c;
+            j += 1;
+            continue;
+        }
+        if (c === '}') {
+            braces -= 1;
+            if (braces === 0) return j;
+            lastToken = c;
+            j += 1;
+            continue;
+        }
+        if (!/\s/.test(c)) lastToken = punctuationToken(lastToken, c);
+        j += 1;
+    }
+    return source.length - 1;
+}
+
+// A title is only usable on the command line when it is written out in full. A
+// quoted string that is joined to something else, as in context('Row ' + n, ...),
+// reads as a complete title and is not one, so the character after the closing
+// quote has to be the comma that ends the argument.
+function titleIsComplete(source, end) {
+    let k = end + 1;
+    while (k < source.length && /\s/.test(source[k])) k += 1;
+    return source[k] === ',';
+}
+
+// Why a suite cannot be ticked, taken from the suite itself. A skipped one will not
+// run whatever is asked, and one whose title could not be read cannot be named on
+// the command line.
+function ownReason(suite) {
+    if (suite.modifier === 'skip') return 'skip';
+    if (!suite.readable) return 'unreadable';
+    return null;
+}
+
 function scanSource(source) {
     const suites = [];
     const open = []; // suites whose body we are inside, innermost last
     let depth = 0;   // curly brace depth
     let tests = 0;
+    let skippedTests = 0;
+    let onlyTests = 0;
     let i = 0;
-    let lastSignificant = ''; // last non comment, non whitespace character read
+    let lastToken = ''; // last non comment, non whitespace token read
 
     const closeFinished = () => {
         while (open.length > 0 && depth <= open[open.length - 1].braceDepth) {
@@ -195,9 +257,9 @@ function scanSource(source) {
         // A regex literal. Checked before strings, since `/` is not a quote
         // character, and before the general punctuation fallback, since a slash
         // written inside a regex must not be read as division partway through.
-        if (c === '/' && isRegexContext(lastSignificant)) {
+        if (c === '/' && isRegexContext(lastToken)) {
             const end = skipRegexLiteral(source, i);
-            lastSignificant = source[end];
+            lastToken = source[end];
             i = end + 1;
             continue;
         }
@@ -207,7 +269,7 @@ function scanSource(source) {
         if (c === "'" || c === '"' || c === '`') {
             const quoted = readQuoted(source, i);
             if (quoted) {
-                lastSignificant = source[quoted.end];
+                lastToken = source[quoted.end];
                 i = quoted.end + 1;
                 continue;
             }
@@ -216,27 +278,27 @@ function scanSource(source) {
                 // one unit, so a brace inside the substitution is never mistaken
                 // for one of the file's own.
                 const end = skipTemplateLiteral(source, i);
-                lastSignificant = source[end];
+                lastToken = source[end];
                 i = end + 1;
                 continue;
             }
             // An unterminated string. Step past the opening quote and carry on
             // rather than stopping the scan.
-            lastSignificant = c;
+            lastToken = c;
             i += 1;
             continue;
         }
 
         if (c === '{') {
             depth += 1;
-            lastSignificant = c;
+            lastToken = c;
             i += 1;
             continue;
         }
         if (c === '}') {
             depth -= 1;
             closeFinished();
-            lastSignificant = c;
+            lastToken = c;
             i += 1;
             continue;
         }
@@ -264,21 +326,37 @@ function scanSource(source) {
                     let t = k + 1;
                     while (t < source.length && /\s/.test(source[t])) t += 1;
                     const quoted = readQuoted(source, t);
+                    const readable = quoted !== null && titleIsComplete(source, quoted.end);
 
                     if (TEST_WORDS.includes(word)) {
-                        tests += 1;
-                        for (const s of open) s.tests += 1;
+                        // A test inside a skipped suite does not run either, so it
+                        // is counted with the skipped ones. The figures printed by
+                        // the command have to be what will actually run.
+                        const willRun = modifier !== 'skip' && !open.some((s) => s.modifier === 'skip');
+                        if (willRun) {
+                            tests += 1;
+                            if (modifier === 'only') onlyTests += 1;
+                            for (const s of open) s.tests += 1;
+                        } else {
+                            skippedTests += 1;
+                            for (const s of open) s.skippedTests += 1;
+                        }
                     } else {
                         closeFinished();
                         const parent = open[open.length - 1] || null;
-                        const title = quoted ? quoted.text : null;
+                        const title = readable ? quoted.text : null;
                         const suite = {
                             title,
                             path: (parent ? parent.path : []).concat(title === null ? '' : title),
                             depth: parent ? parent.depth + 1 : 0,
                             tests: 0,
+                            skippedTests: 0,
                             modifier,
-                            readable: quoted !== null,
+                            readable,
+                            // Why an ancestor of this suite cannot be ticked, which
+                            // makes this one untickable too: its own title path
+                            // runs through that ancestor.
+                            blockedBy: parent ? (parent.blockedBy || ownReason(parent)) : null,
                             braceDepth: depth,
                         };
                         suites.push(suite);
@@ -314,26 +392,54 @@ function scanSource(source) {
                         }
                     }
 
-                    lastSignificant = source[i - 1];
+                    lastToken = source[i - 1];
                     continue;
                 }
             }
-            lastSignificant = word[word.length - 1];
+            lastToken = word;
             i = j;
             continue;
         }
 
-        if (!/\s/.test(c)) lastSignificant = c;
+        if (!/\s/.test(c)) lastToken = punctuationToken(lastToken, c);
         i += 1;
     }
 
     // braceDepth is working memory for the scan, not part of what callers get.
     for (const s of suites) delete s.braceDepth;
-    return { suites, tests };
+    return { suites, tests, skippedTests, onlyTests };
 }
 
 function scanFile(absolutePath) {
-    return scanSource(fs.readFileSync(absolutePath, 'utf8'));
+    return fs.readFileSync(absolutePath, 'utf8') ? scanSource(fs.readFileSync(absolutePath, 'utf8')) : scanSource('');
 }
 
-module.exports = { scanSource, scanFile };
+// Which suites the list should offer. Most specs are one outermost suite with the
+// real contexts inside it, and listing that outermost suite adds a row that means
+// "the whole spec", which the spec's own row already means. A spec written as
+// several outermost suites is different: dropping them leaves nothing to tick at
+// all, so those are what gets listed.
+function listableSuites(suites) {
+    const outermost = suites.filter((s) => s.depth === 0).length;
+    const from = outermost > 1 ? 0 : 1;
+    return suites.filter((s) => s.depth >= from);
+}
+
+// Everything the list needs about one spec, in the shape createState expects.
+// `listContexts` is false when the host project's support file does not import
+// this package, because the contexts cannot then be honoured.
+function summariseScan(scan, { listContexts }) {
+    return {
+        tests: scan.tests,
+        skippedTests: scan.skippedTests,
+        onlyTests: scan.onlyTests,
+        // An only on the outermost suite counts just as much as one further in, so
+        // this is taken from every suite rather than from the listed ones.
+        onlySuites: scan.suites
+            .filter((s) => s.modifier === 'only')
+            .map((s) => ({ title: s.title, tests: s.tests })),
+        suites: listContexts ? listableSuites(scan.suites) : [],
+    };
+}
+
+module.exports = { scanSource, scanFile, listableSuites, summariseScan };

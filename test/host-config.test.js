@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { readHost, findSpecs, isSupportInstalled } = require('../src/host-config');
+const { resolveCypressBin } = require('../src/run');
 
 function makeProject(files) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cypick-'));
@@ -93,4 +94,61 @@ test('it reports the host Cypress major version, or null when there is none', ()
     });
     assert.equal(readHost(dir).cypressMajor, 16);
     assert.equal(readHost(makeProject({})).cypressMajor, null);
+});
+
+// Finding I5. The version was read straight out of <project>/node_modules while the
+// run was launched with Node's own lookup, which also searches the folders above.
+// In a workspace the two disagreed: no version was found, 16 was assumed, and a
+// Cypress 15 project was handed a flag it does not understand.
+
+test('I5: the version is found when Cypress is installed in a folder above the project', () => {
+    const root = makeProject({
+        'node_modules/cypress/package.json': '{"name":"cypress","version":"15.4.0"}',
+        'packages/app/cypress.config.js': 'module.exports = { e2e: {} }',
+    });
+    assert.equal(readHost(path.join(root, 'packages', 'app')).cypressMajor, 15);
+});
+
+test('I5: the version reader and the run launcher look in the same place', () => {
+    const root = makeProject({
+        'node_modules/cypress/package.json': '{"name":"cypress","version":"15.4.0","bin":{"cypress":"bin/cypress"}}',
+        'node_modules/cypress/bin/cypress': '',
+        'packages/app/cypress.config.js': 'module.exports = { e2e: {} }',
+    });
+    const app = path.join(root, 'packages', 'app');
+    assert.equal(readHost(app).cypressMajor, 15);
+    assert.equal(typeof resolveCypressBin(app), 'string');
+});
+
+// Finding I9. A commented-out import is not an import. Reading it as one makes the
+// contexts tickable and sends a filter that nothing in the browser applies.
+
+test('I9: an import that appears only inside a comment does not count', () => {
+    const lineComment = makeProject({
+        'cypress.config.js': 'module.exports = { e2e: {} }',
+        'cypress/support/e2e.js': "// import 'cypress-pick/support'\nimport './commands'",
+    });
+    assert.equal(isSupportInstalled(lineComment, readHost(lineComment)), false);
+
+    const blockComment = makeProject({
+        'cypress.config.js': 'module.exports = { e2e: {} }',
+        'cypress/support/e2e.js': "/*\n  import 'cypress-pick/support'\n*/\nimport './commands'",
+    });
+    assert.equal(isSupportInstalled(blockComment, readHost(blockComment)), false);
+});
+
+test('I9: a real import is still found when a comment mentions one too', () => {
+    const dir = makeProject({
+        'cypress.config.js': 'module.exports = { e2e: {} }',
+        'cypress/support/e2e.js': "// add import 'cypress-pick/support' below\nimport 'cypress-pick/support'",
+    });
+    assert.equal(isSupportInstalled(dir, readHost(dir)), true);
+});
+
+test('I9: a double slash inside a string is not read as the start of a comment', () => {
+    const dir = makeProject({
+        'cypress.config.js': 'module.exports = { e2e: {} }',
+        'cypress/support/e2e.js': "const site = 'https://example.com'\nimport 'cypress-pick/support'",
+    });
+    assert.equal(isSupportInstalled(dir, readHost(dir)), true);
 });

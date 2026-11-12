@@ -61,3 +61,37 @@ test('two ticked contexts both register and their siblings do not', () => {
     assert.equal(shouldRegisterSuite(['Root', 'C'], two), true);
     assert.equal(shouldRegisterSuite(['Root', 'B'], two), false);
 });
+
+// Finding C3. Being inside something ticked is no longer enough on its own. The
+// nearest answer wins: the longest ticked or unticked path that the suite sits
+// under is the one that decides.
+
+const PICKED = [['Root', 'A'], ['Root', 'B']];
+const DROPPED = [['Root', 'A', 'A child']];
+
+test('C3: a context unticked under a ticked parent does not register', () => {
+    assert.equal(shouldRegisterSuite(['Root', 'A', 'A child'], PICKED, DROPPED), false);
+    assert.equal(shouldRegisterTest(['Root', 'A', 'A child'], PICKED, DROPPED), false);
+});
+
+test('C3: its ticked parent still registers, and so do the parent\'s own tests', () => {
+    assert.equal(shouldRegisterSuite(['Root', 'A'], PICKED, DROPPED), true);
+    assert.equal(shouldRegisterTest(['Root', 'A'], PICKED, DROPPED), true);
+});
+
+test('C3: a ticked context under an unticked parent still runs', () => {
+    // The parent has to register, or its ticked child never gets the chance to.
+    // Its own loose tests must not.
+    const picked = [['Root', 'A', 'A child']];
+    const dropped = [['Root', 'A'], ['Root', 'B']];
+    assert.equal(shouldRegisterSuite(['Root', 'A'], picked, dropped), true);
+    assert.equal(shouldRegisterTest(['Root', 'A'], picked, dropped), false);
+    assert.equal(shouldRegisterSuite(['Root', 'A', 'A child'], picked, dropped), true);
+    assert.equal(shouldRegisterTest(['Root', 'A', 'A child'], picked, dropped), true);
+    assert.equal(shouldRegisterSuite(['Root', 'B'], picked, dropped), false);
+});
+
+test('C3: leaving the unticked list out behaves exactly as before', () => {
+    assert.equal(shouldRegisterSuite(['Root', 'A', 'A child'], PICKED), true);
+    assert.equal(shouldRegisterTest(['Root', 'A', 'A child'], PICKED), true);
+});

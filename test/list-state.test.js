@@ -112,18 +112,124 @@ test('toPickedSpecs gives build-args what it expects', () => {
     const picked = toPickedSpecs(state);
     assert.equal(picked[0].relative, 'cypress/e2e/a.cy.js');
     assert.equal(picked[0].checked, true);
-    assert.deepEqual(picked[0].suites[0], { path: ['Root', 'A one'], checked: true, selectable: true });
+    assert.deepEqual(picked[0].suites[0], {
+        path: ['Root', 'A one'], checked: true, selectable: true, runsAnyway: false,
+    });
     assert.equal(picked[0].suites[2].selectable, false);
+    // A skipped context does not run whether the spec is filtered or sent whole, so
+    // it does not stop the spec counting as ticked whole.
+    assert.equal(picked[0].suites[2].runsAnyway, false);
 });
 
 test('a context whose title could not be read cannot be ticked', () => {
     const scanned = [{
         relative: 'c.cy.js',
         tests: 1,
-        suites: [{ title: null, path: ['Root', ''], depth: 1, tests: 1, modifier: null, readable: false }],
+        suites: [{ title: null, path: ['Root', ''], depth: 1, tests: 1, modifier: null, readable: false, blockedBy: null }],
     }];
     let state = reduce(createState(scanned), 'open');
     const row = visibleRows(state)[1];
     assert.equal(row.selectable, false);
     assert.equal(row.note, 'title cannot be read');
+});
+
+// Finding C2. A context under one that cannot be ticked cannot be ticked either,
+// because its own title path carries the gap and can never be matched.
+
+test('C2: a context inside an unreadable one cannot be ticked', () => {
+    const scanned = [{
+        relative: 'c.cy.js',
+        tests: 1,
+        suites: [
+            { title: null, path: ['Root', ''], depth: 1, tests: 1, modifier: null, readable: false, blockedBy: null },
+            { title: 'inner', path: ['Root', '', 'inner'], depth: 2, tests: 1, modifier: null, readable: true, blockedBy: 'unreadable' },
+        ],
+    }];
+    const state = reduce(createState(scanned), 'open');
+    const row = visibleRows(state)[2];
+    assert.equal(row.selectable, false);
+    assert.equal(row.note, 'inside a context whose title cannot be read');
+});
+
+test('C2: a context inside a skipped one cannot be ticked', () => {
+    const scanned = [{
+        relative: 'c.cy.js',
+        tests: 1,
+        suites: [
+            { title: 'outer', path: ['Root', 'outer'], depth: 1, tests: 1, modifier: 'skip', readable: true, blockedBy: null },
+            { title: 'inner', path: ['Root', 'outer', 'inner'], depth: 2, tests: 1, modifier: null, readable: true, blockedBy: 'skip' },
+        ],
+    }];
+    const state = reduce(createState(scanned), 'open');
+    assert.equal(visibleRows(state)[2].selectable, false);
+    assert.equal(visibleRows(state)[2].note, 'inside a skipped context');
+});
+
+// Finding I1. The two markers people actually leave behind must both be warned
+// about: one on the outermost suite, and one on a single test.
+
+test('I1: an only on the outermost suite is warned about', () => {
+    const scanned = [{
+        relative: 'a.cy.js',
+        tests: 4,
+        onlySuites: [{ title: 'Root', tests: 4 }],
+        onlyTests: 0,
+        suites: [],
+    }];
+    const state = reduce(createState(scanned), 'all');
+    assert.equal(warnings(state).length, 1);
+    assert.match(warnings(state)[0], /'Root'/);
+});
+
+test('I1: an only on a test is warned about', () => {
+    const scanned = [{ relative: 'a.cy.js', tests: 4, onlySuites: [], onlyTests: 2, suites: [] }];
+    const state = reduce(createState(scanned), 'all');
+    assert.equal(warnings(state).length, 1);
+    assert.match(warnings(state)[0], /2 tests/);
+});
+
+test('I1: a spec row shows the only note even when the marker is on the outermost suite', () => {
+    const scanned = [{ relative: 'a.cy.js', tests: 4, onlySuites: [{ title: 'Root', tests: 4 }], onlyTests: 0, suites: [] }];
+    assert.equal(visibleRows(createState(scanned))[0].note, 'only');
+});
+
+// Finding C1. A spec carrying only is not narrowed, so the warning says so.
+
+const ONLY_SPEC = () => [{
+    relative: 'a.cy.js',
+    tests: 3,
+    onlySuites: [{ title: 'Sprint 4', tests: 2 }],
+    onlyTests: 0,
+    suites: [
+        { title: 'G', path: ['Root', 'G'], depth: 1, tests: 1, modifier: null, readable: true, blockedBy: null },
+        { title: 'Sprint 4', path: ['Root', 'Sprint 4'], depth: 1, tests: 2, modifier: 'only', readable: true, blockedBy: null },
+    ],
+}];
+
+test('C1: a partly ticked spec carrying only is told its ticks were not applied', () => {
+    let state = reduce(createState(ONLY_SPEC()), 'open');
+    state = reduce(reduce(state, 'down'), 'toggle');
+    const lines = warnings(state);
+    assert.equal(lines.length, 2);
+    assert.match(lines[1], /were not applied/);
+});
+
+test('C1: a spec carrying only that is ticked whole gets one line, not two', () => {
+    assert.equal(warnings(reduce(createState(ONLY_SPEC()), 'all')).length, 1);
+});
+
+test('toPickedSpecs says whether a spec carries only, so the filter can be left off', () => {
+    const scanned = [{ relative: 'a.cy.js', tests: 1, onlySuites: [], onlyTests: 1, suites: [] }];
+    assert.equal(toPickedSpecs(reduce(createState(scanned), 'all'))[0].hasOnly, true);
+});
+
+// Finding I4. A spec with nothing to tick says so when it is opened, rather than
+// opening onto nothing.
+
+test('I4: opening a spec with no contexts shows a line saying there are none', () => {
+    const scanned = [{ relative: 'a.cy.js', tests: 1, suites: [] }];
+    const rows = visibleRows(reduce(createState(scanned), 'open'));
+    assert.equal(rows.length, 2);
+    assert.equal(rows[1].kind, 'note');
+    assert.equal(rows[1].selectable, false);
 });

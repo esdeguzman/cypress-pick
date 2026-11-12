@@ -7,8 +7,11 @@ const path = require('node:path');
 //
 // The Cypress config is loaded with require. Whether a TypeScript config can be
 // loaded this way depends on the Node version running the command, not on the file
-// being TypeScript: Node 22.6 and later strip the types and load it like any other
-// config, an earlier Node cannot load it at all. Either way, when the config cannot
+// being TypeScript: Node 22.18 and later, and Node 23.6 and later, strip the types
+// and load it like any other config, and an earlier Node cannot load it at all.
+// Node 22.6 is not the line, although it is often quoted as one: it added the
+// option, which had to be asked for, and the plain require below never asks for it.
+// Either way, when the config cannot
 // be loaded the Cypress defaults are used and the caller is told, so it can say so
 // rather than appear to have found nothing.
 
@@ -53,10 +56,15 @@ function findSupportFile(cwd, fromConfig) {
     return DEFAULT_SUPPORT_FILE;
 }
 
+// Node's own lookup, which searches the folders above the project as well as its
+// own node_modules. src/run.js resolves the Cypress to launch the same way, and the
+// two must agree: when this looked only in <project>/node_modules, a project inside
+// a workspace found no version, 16 was assumed, and a Cypress 15 project was handed
+// a flag it does not understand.
 function readCypressMajor(cwd) {
-    const full = path.join(cwd, 'node_modules', 'cypress', 'package.json');
     try {
-        return parseInt(JSON.parse(fs.readFileSync(full, 'utf8')).version.split('.')[0], 10);
+        const manifest = require.resolve('cypress/package.json', { paths: [cwd] });
+        return parseInt(JSON.parse(fs.readFileSync(manifest, 'utf8')).version.split('.')[0], 10);
     } catch (err) {
         return null;
     }
@@ -119,10 +127,20 @@ function findSpecs(cwd, host) {
         .sort();
 }
 
+// Removes line and block comments, so a commented out import is not read as a real
+// one. It was: the contexts then became tickable, a filter was sent, and nothing in
+// the browser applied it, so the whole spec ran while the list said part of it had
+// been picked. Quotes are not tracked, which is enough here because the only thing
+// being looked for afterwards is one import path.
+function withoutComments(source) {
+    return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+
 function isSupportInstalled(cwd, host) {
     if (!host.supportFile) return false;
     try {
-        return fs.readFileSync(path.join(cwd, host.supportFile), 'utf8').includes('cypress-pick/support');
+        const source = fs.readFileSync(path.join(cwd, host.supportFile), 'utf8');
+        return withoutComments(source).includes('cypress-pick/support');
     } catch (err) {
         return false;
     }

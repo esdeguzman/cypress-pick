@@ -6,7 +6,12 @@
 // specific.
 //
 // A title path is the chain of suite titles from the outermost one inward. A
-// selection is a list of those paths, one per ticked context.
+// selection is two lists of those paths: the contexts that were ticked, and the
+// contexts that were left unticked.
+//
+// Both lists are needed. With only the ticked list, a ticked parent let back in a
+// child that the person had just unticked, because the child sits inside something
+// ticked. The list then said "some contexts" while every test in the spec ran.
 
 // True when `shorter` matches the start of `longer`, title for title.
 function isPrefix(shorter, longer) {
@@ -17,20 +22,43 @@ function isPrefix(shorter, longer) {
     return true;
 }
 
-// A suite registers when it contains something ticked, is ticked, or sits inside
-// something ticked. The first of those three is why the outermost suite always
+// The nearest answer wins. Of all the ticked and unticked paths that `path` sits
+// at or inside, the longest one is the one the person meant, because it is the one
+// closest to the suite being judged. Returns true for ticked, false for unticked,
+// and null when neither list says anything about this path.
+function nearestAnswer(path, selected, excluded) {
+    let closest = -1;
+    let answer = null;
+    for (const sel of selected || []) {
+        if (isPrefix(sel, path) && sel.length > closest) {
+            closest = sel.length;
+            answer = true;
+        }
+    }
+    for (const ex of excluded || []) {
+        if (isPrefix(ex, path) && ex.length > closest) {
+            closest = ex.length;
+            answer = false;
+        }
+    }
+    return answer;
+}
+
+// A suite registers when it contains something ticked, or when the nearest answer
+// about it is "ticked". The first of those is why the outermost suite always
 // registers: the ticked contexts cannot exist without their parent.
-function shouldRegisterSuite(titlePath, selected) {
+function shouldRegisterSuite(titlePath, selected, excluded) {
     if (!selected || selected.length === 0) return true;
-    return selected.some((sel) => isPrefix(titlePath, sel) || isPrefix(sel, titlePath));
+    if (selected.some((sel) => isPrefix(titlePath, sel))) return true;
+    return nearestAnswer(titlePath, selected, excluded) === true;
 }
 
-// A test registers only when it sits inside something ticked. Containing a ticked
-// context is not enough, which is what keeps loose tests in the outermost suite out
-// of a run that asked for one context.
-function shouldRegisterTest(enclosingPath, selected) {
+// A test registers only when the nearest answer about the suite it sits in is
+// "ticked". Containing a ticked context is not enough, which is what keeps loose
+// tests in the outermost suite out of a run that asked for one context.
+function shouldRegisterTest(enclosingPath, selected, excluded) {
     if (!selected || selected.length === 0) return true;
-    return selected.some((sel) => isPrefix(sel, enclosingPath));
+    return nearestAnswer(enclosingPath, selected, excluded) === true;
 }
 
-module.exports = { isPrefix, shouldRegisterSuite, shouldRegisterTest };
+module.exports = { isPrefix, nearestAnswer, shouldRegisterSuite, shouldRegisterTest };

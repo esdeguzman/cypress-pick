@@ -32,7 +32,40 @@ test('a spec with some suites ticked contributes those paths', () => {
             suite(['Root', 'B'], false),
         ]),
     ]);
-    assert.deepEqual(sel.filter, { 'cypress/e2e/a.cy.js': [['Root', 'A']] });
+    assert.deepEqual(sel.filter, {
+        'cypress/e2e/a.cy.js': { include: [['Root', 'A']], exclude: [['Root', 'B']] },
+    });
+});
+
+// Finding C3. The unticked contexts have to travel too, or a ticked parent lets a
+// child that was unticked back into the run.
+
+test('C3: an unticked context under a ticked one is carried as an exclusion', () => {
+    const sel = buildSelection([
+        spec('cypress/e2e/a.cy.js', true, [
+            suite(['Root', 'A'], true),
+            suite(['Root', 'A', 'A child'], false),
+            suite(['Root', 'B'], true),
+        ]),
+    ]);
+    assert.deepEqual(sel.filter['cypress/e2e/a.cy.js'], {
+        include: [['Root', 'A'], ['Root', 'B']],
+        exclude: [['Root', 'A', 'A child']],
+    });
+});
+
+// Finding C1. Mocha's only decides what runs, so a spec carrying one is sent whole
+// and the ticks are left off, rather than sending a filter that is not what happens.
+
+test('C1: a spec carrying only gets no filter entry', () => {
+    const picked = spec('cypress/e2e/a.cy.js', true, [
+        suite(['Root', 'A'], true),
+        suite(['Root', 'B'], false),
+    ]);
+    picked.hasOnly = true;
+    const sel = buildSelection([picked]);
+    assert.deepEqual(sel.specs, ['cypress/e2e/a.cy.js']);
+    assert.deepEqual(sel.filter, {});
 });
 
 test('a suite that cannot be ticked is left out of the all-ticked test', () => {

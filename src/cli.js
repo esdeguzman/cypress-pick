@@ -58,6 +58,20 @@ function composeCypressArgs(selection, version, passthrough) {
     return args.concat(passthrough);
 }
 
+// A spec typed on the command line wins over the picked ones, which is right: it is
+// the more recent and more deliberate instruction. But the specs that were ticked
+// were then thrown away without a word, so the person watched a run of something
+// they had not chosen. Returns the line to print, or null when nothing was dropped.
+function typedSpecNotice(passthrough, selection) {
+    if (!hasSpecFlag(passthrough) || selection.specs.length === 0) return null;
+    const typedIndex = passthrough.findIndex((a) => a === '--spec' || a === '-s' || a.startsWith('--spec='));
+    const typed = passthrough[typedIndex].startsWith('--spec=')
+        ? passthrough[typedIndex].slice('--spec='.length)
+        : passthrough[typedIndex + 1];
+    return 'You typed a spec, ' + typed + ', so that is what will run. The ' +
+        selection.specs.length + ' you ticked were not used: ' + selection.specs.join(', ');
+}
+
 // Reads the ticked rows of the run-mode list and decides what to do, without
 // touching the prompt itself, so this can be tested without a terminal. `how` is
 // null only when the choice was ambiguous; `message` is a line to print either way,
@@ -99,16 +113,19 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
     const host = readHost(root);
     if (options.specPattern) host.specPattern = [options.specPattern];
 
+    // This notice explains the pattern that the next message complains about, so it
+    // has to come first. Printed after the exit below, a person whose config could
+    // not be read saw only a pattern they never configured, with no hint why.
+    if (!host.configRead) {
+        stdout.write('\n  The Cypress config could not be read, so the default pattern ' +
+            DEFAULT_SPEC_PATTERN + ' was used.\n');
+    }
+
     const files = findSpecs(root, host);
     if (files.length === 0) {
         stdout.write('\n  No spec files found under ' + host.specPattern.join(', ') + '\n');
         stdout.write('  Use --spec-pattern to say where they are.\n\n');
         return 1;
-    }
-
-    if (!host.configRead) {
-        stdout.write('\n  The Cypress config could not be read, so the default pattern ' +
-            DEFAULT_SPEC_PATTERN + ' was used.\n');
     }
 
     const supportInstalled = isSupportInstalled(root, host);
@@ -165,6 +182,8 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
 
     const version = { cypressMajor: host.cypressMajor === null ? 16 : host.cypressMajor };
     if (how.kind === 'cypress') {
+        const dropped = typedSpecNotice(options.passthrough, selection);
+        if (dropped) stdout.write('\n  ' + dropped + '\n');
         return runCypress(composeCypressArgs(selection, version, options.passthrough), { cwd: root });
     }
     return runNpmScript(how.name, {
@@ -174,4 +193,4 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
     });
 }
 
-module.exports = { main, parseArgs, composeCypressArgs, hasSpecFlag, decideHow };
+module.exports = { main, parseArgs, composeCypressArgs, hasSpecFlag, decideHow, typedSpecNotice };

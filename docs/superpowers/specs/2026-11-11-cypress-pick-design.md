@@ -175,8 +175,11 @@ It reads the host's Cypress config for `specPattern` and `excludeSpecPattern`. ~
 config cannot be read, which happens with a TypeScript config file, it falls back to
 Cypress's own default glob and says that it did.~~ **Corrected: whether a TypeScript
 config can be read depends on the Node version running the command, not on the file being
-TypeScript.** Node 22.6 and later strip the types and load it like any other config; an
-earlier Node cannot load it at all. Either way the result is handled: read it when it can
+TypeScript.** ~~Node 22.6 and later strip the types and load it like any other config; an
+earlier Node cannot load it at all.~~ **Corrected again 2026-11-12: 22.6 is the wrong
+line. It added the option, which has to be asked for, and the plain `require` used here
+never asks for it. The versions that load a TypeScript config with no flag are Node 22.18
+and later, and Node 23.6 and later.** Either way the result is handled: read it when it can
 be read, and fall back to Cypress's own default glob and say that it did when it cannot. A
 `--spec-pattern` flag overrides both.
 
