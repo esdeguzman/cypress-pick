@@ -11,13 +11,13 @@ that question every time. This adds one key that gives that answer up front.
 
 ## What the key does
 
-`h`, pressed in the spec list, is an accept. It runs exactly what enter would
+`r`, pressed in the spec list, is an accept. It runs exactly what enter would
 run, and skips the "How should it run?" list.
 
 | Situation | What happens |
 |---|---|
-| Specs ticked, `h` pressed | Cypress runs the picks. The mode list never appears |
-| Nothing ticked, `h` pressed | "Nothing was ticked, so nothing was run." Exit code 1 |
+| Specs ticked, `r` pressed | Cypress runs the picks. The mode list never appears |
+| Nothing ticked, `r` pressed | "Nothing was ticked, so nothing was run." Exit code 1 |
 | A spec carries `.only` | Its warning prints first, as it does on enter |
 | A spec was typed after `--` | The typed spec wins, and the notice about the dropped picks prints |
 | Flags after `--` | Passed to Cypress, as on enter |
@@ -26,11 +26,11 @@ Running Cypress directly is already headless. No `--headless` flag is added.
 
 ## What the key costs
 
-`h` stops closing an open spec. The left arrow still closes one. `j`, `k` and
-`l` keep their meanings, so only one of the four vim keys changes.
+Nothing. `r` was not bound to anything, so every existing key keeps its
+meaning, including `h`, which still closes an open spec.
 
-This was a deliberate choice over a free key such as `r`. The key is named for
-what it does.
+`h` was tried first, for the word headless, and dropped once it was clear it
+was already the vim close key.
 
 ## The list footer
 
@@ -39,12 +39,12 @@ The spec list gains one entry:
 ```
   [x] whole spec   [~] some contexts   [ ] not running
   up/down move   space tick   right open   left close   a all   n none
-  enter run   h headless   q quit
+  enter run   r headless   q quit
 ```
 
 The "How should it run?" list does not show it and does not bind it. That list
-is a second use of the same widget, with no openable rows, so `h` there keeps
-meaning close and does nothing.
+is a second use of the same widget, so `r` there is an unmapped key and is
+ignored, the way any other letter with no meaning is.
 
 ## Interfaces
 
@@ -56,9 +56,9 @@ It will resolve:
 
 - `null`, unchanged, when the person pressed `q` or Ctrl+C
 - `{ state, accept }` otherwise, where `accept` is `'ask'` after enter and
-  `'headless'` after `h`
+  `'headless'` after `r`
 
-A new option, `allowHeadless`, decides whether `h` is bound to the headless
+A new option, `allowHeadless`, decides whether `r` is bound to the headless
 accept and whether the footer names it. It defaults to false. The spec list
 passes true. The mode list passes nothing, so it is unchanged.
 
@@ -79,10 +79,11 @@ Nothing in `list-state.js`, `build-args.js`, `run.js` or `runner.js` changes.
 
 | Test | Checks |
 |---|---|
-| `h` with `allowHeadless` | Resolves `accept: 'headless'`, with the ticks as they stood |
+| `r` with `allowHeadless` | Resolves `accept: 'headless'`, with the ticks as they stood |
 | enter | Resolves `accept: 'ask'` |
-| `h` without `allowHeadless` | Closes an open spec, as it does today |
-| footer, option on | The line names `h headless` |
+| `r` without `allowHeadless` | Changes nothing, the way any unmapped key does |
+| `h` with `allowHeadless` | Still closes an open spec |
+| footer, option on | The line names `r headless` |
 | footer, option off | The line does not name it |
 | `main`, headless accept | Cypress is launched and the mode list is never drawn |
 | `main`, headless accept, nothing ticked | Refuses with the existing message, exit code 1 |

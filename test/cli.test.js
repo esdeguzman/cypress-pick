@@ -159,7 +159,7 @@ function tinyProject() {
     return dir;
 }
 
-test('h runs cypress and never draws the mode list', async () => {
+test('r runs cypress and never draws the mode list', async () => {
     const dir = tinyProject();
     const stdin = fakeTty();
     const written = [];
@@ -171,7 +171,7 @@ test('h runs cypress and never draws the mode list', async () => {
 
     await new Promise((resolve) => setImmediate(resolve)); // let the first draw happen
     stdin.write(' '); // tick the one spec
-    stdin.write('h');
+    stdin.write('r');
 
     const code = await codePromise;
     const output = written.join('');
@@ -180,7 +180,7 @@ test('h runs cypress and never draws the mode list', async () => {
     assert.equal(code, 1, 'the run reached Cypress, which is not installed in a temporary folder');
 });
 
-test('h with nothing ticked refuses, the same way enter does', async () => {
+test('r with nothing ticked refuses, the same way enter does', async () => {
     const dir = tinyProject();
     const stdin = fakeTty();
     const written = [];
@@ -191,7 +191,7 @@ test('h with nothing ticked refuses, the same way enter does', async () => {
     });
 
     await new Promise((resolve) => setImmediate(resolve));
-    stdin.write('h'); // no tick first
+    stdin.write('r'); // no tick first
 
     const code = await codePromise;
     assert.match(written.join(''), /Nothing was ticked, so nothing was run/);

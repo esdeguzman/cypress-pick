@@ -19,7 +19,7 @@ the contexts inside it too, so you can run part of a large spec without editing 
 
   [x] whole spec   [~] some contexts   [ ] not running
   up/down move   space tick   right open   left close   a all   n none
-  enter run   h headless   q quit
+  enter run   r headless   q quit
 ```
 
 This is a real list, drawn from a 19 spec, 764 test Cypress project. Ticking contexts A
@@ -97,7 +97,7 @@ Contexts are a way of narrowing. You never have to open one.
 
 ## Two ways it runs
 
-After you press enter it asks how to run. Press `h` instead of enter and it does not
+After you press enter it asks how to run. Press `r` instead of enter and it does not
 ask: it runs Cypress directly, which is the first of the two answers below. **Run
 Cypress directly** needs no setup and builds the command itself:
 
@@ -129,9 +129,6 @@ one instead, because the fallback was added before `applyPick` and so always won
 
 The variables are `CYPICK_SPEC`, `CYPICK_FILTER` and `CYPICK_FLAG`. They are not named
 with the `CYPRESS_` prefix, because Cypress claims that prefix for its own settings.
-
-`h` used to close an open spec. The left arrow still does that, and `j`, `k` and `l`
-still move down, move up and open.
 
 ## About only and skip
 

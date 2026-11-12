@@ -2,9 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `h` to the spec list as a second way to accept, which runs the ticked picks through Cypress and never shows the "How should it run?" list.
+**Goal:** Add `r` to the spec list as a second way to accept, which runs the ticked picks through Cypress and never shows the "How should it run?" list.
 
-**Architecture:** `promptList` gains a third outcome. It already resolves `null` for quit and the state for accept; it will now resolve `{ state, accept }` where `accept` is `'ask'` or `'headless'`. A new option, `allowHeadless`, decides whether `h` is bound to the headless accept and whether the footer names it. `cli.js` reads `accept` and, when it is `'headless'`, uses the same `{ how: { kind: 'cypress' }, message: null }` value it already uses for a project with no runnable scripts.
+> **The key changed after this plan was written and executed.** Every task below
+> was carried out with `h`, then swapped to `r` in one commit at the end, because
+> `h` was already the vim key for closing an open spec. The code, the tests and
+> the README all say `r`. The step bodies below still say `h`, because they are a
+> record of what was done at the time. Where they disagree with the code, the
+> code is right.
+
+**Architecture:** `promptList` gains a third outcome. It already resolves `null` for quit and the state for accept; it will now resolve `{ state, accept }` where `accept` is `'ask'` or `'headless'`. A new option, `allowHeadless`, decides whether `r` is bound to the headless accept and whether the footer names it. `cli.js` reads `accept` and, when it is `'headless'`, uses the same `{ how: { kind: 'cypress' }, message: null }` value it already uses for a project with no runnable scripts.
 
 **Tech Stack:** Node 18 or later, CommonJS, `node --test`, no production dependencies.
 
@@ -27,9 +34,9 @@ Every task's requirements implicitly include this section.
 
 | File | What changes |
 |---|---|
-| `src/checkbox-list.js` | Resolved shape becomes `{ state, accept }`. New `allowHeadless` option binds `h` and adds a footer entry |
+| `src/checkbox-list.js` | Resolved shape becomes `{ state, accept }`. New `allowHeadless` option binds `r` and adds a footer entry |
 | `src/cli.js` | Both `promptList` call sites read `state` out of the result. The spec list asks for `allowHeadless`. A headless accept skips `chooseHow` |
-| `test/checkbox-list.test.js` | Existing accept tests read `state` out of the result. New tests for `h`, for `accept`, and for the footer |
+| `test/checkbox-list.test.js` | Existing accept tests read `state` out of the result. New tests for `r`, for `h` keeping close, for `accept`, and for the footer |
 | `test/cli.test.js` | New end to end `main` tests for the headless path |
 | `test/manual/demo-list.js` | Reads `state` out of the result |
 | `README.md` | The sample key list, and the section "Two ways it runs" |
@@ -269,7 +276,7 @@ Adds the key itself, behind an option, so the "How should it run?" list is not a
 
 **Interfaces:**
 - Consumes: `promptList(state, options)` resolving `{ state, accept }` from Task 1.
-- Produces: `promptList(state, { allowHeadless: true, ... })`. With the option on, `h` resolves `{ state, accept: 'headless' }` and the footer reads `  enter run   h headless   q quit`. With the option off or missing, `h` keeps its current meaning, close, and the footer reads `  enter run   q quit`. `renderLines(state, { title, allowHeadless })` takes the same option.
+- Produces: `promptList(state, { allowHeadless: true, ... })`. With the option on, `h` resolves `{ state, accept: 'headless' }` and the footer reads `  enter run   r headless   q quit`. With the option off or missing, `h` keeps its current meaning, close, and the footer reads `  enter run   q quit`. `renderLines(state, { title, allowHeadless })` takes the same option.
 
 - [x] **Step 1: Write the failing tests**
 
@@ -303,10 +310,10 @@ test('h without allowHeadless still closes an open spec', async () => {
 
 test('the footer names the headless key only when the option is on', () => {
     const withKey = renderLines(createState(SCANNED), { title: 't', allowHeadless: true });
-    assert.ok(withKey.some((l) => l.includes('h headless')));
+    assert.ok(withKey.some((l) => l.includes('r headless')));
 
     const withoutKey = renderLines(createState(SCANNED), { title: 't' });
-    assert.ok(!withoutKey.some((l) => l.includes('h headless')));
+    assert.ok(!withoutKey.some((l) => l.includes('r headless')));
     assert.ok(withoutKey.some((l) => l.includes('enter run')), 'the rest of the footer is unchanged');
 });
 
@@ -375,7 +382,7 @@ and replace the last footer line:
 with:
 
 ```js
-    lines.push(allowHeadless ? '  enter run   h headless   q quit' : '  enter run   q quit');
+    lines.push(allowHeadless ? '  enter run   r headless   q quit' : '  enter run   q quit');
 ```
 
 In `promptList`, replace the signature:
@@ -643,7 +650,7 @@ with:
 
 ```
   up/down move   space tick   right open   left close   a all   n none
-  enter run   h headless   q quit
+  enter run   r headless   q quit
 ```
 
 - [x] **Step 2: Update the section "Two ways it runs" in `README.md`**
@@ -722,7 +729,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ## Decisions already settled
 
-- **The key is `h`, and `h` stops closing a spec.** The left arrow still closes one, and `j`, `k`, `l` are untouched. Chosen over a free key such as `r` so the key is named for what it does.
+- **The key is `r`, and nothing loses its meaning.** `h` was chosen first, for the word headless, and swapped out once it was clear `h` was already the vim close key. `r` was free, so every existing key still does what it did.
 - **It runs `cypress run` directly.** No `--headless` flag is added, because `cypress run` is already headless, and no npm script is involved.
 - **It runs whatever is ticked**, not the row under the cursor. The only difference from enter is that the mode list is skipped.
 - **The mode list does not bind the key.** Hence the `allowHeadless` option rather than a change to the shared `KEYS` map.

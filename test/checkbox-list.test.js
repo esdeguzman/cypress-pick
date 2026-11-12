@@ -358,24 +358,36 @@ test('an error event on stdin still restores the terminal before the promise rej
     assert.equal(written[written.length - 1], '\u001b[?25h', 'the cursor was shown again before the rejection');
 });
 
-// h accepts and asks for a headless run, which is cypress run with no second
-// question about how to run. It replaces h as a close key, which the left arrow
-// still does. The option exists because the same widget draws the "How should it
-// run?" list, where a headless key would mean nothing.
+// r accepts and asks for a headless run, which is cypress run with no second
+// question about how to run. The option exists because the same widget draws the
+// "How should it run?" list, where a headless key would mean nothing.
 
-test('h with allowHeadless resolves an accept of headless, carrying the ticks as they stood', async () => {
+test('r with allowHeadless resolves an accept of headless, carrying the ticks as they stood', async () => {
     const { stdin, stdout } = fakeTerminal();
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout, allowHeadless: true });
     stdin.write(' '); // tick spec a
-    stdin.write('h');
+    stdin.write('r');
     const result = await resultPromise;
     assert.equal(result.accept, 'headless');
-    assert.equal(visibleRows(result.state)[0].mark, 'x', 'the tick made before h is in the resolved state');
+    assert.equal(visibleRows(result.state)[0].mark, 'x', 'the tick made before r is in the resolved state');
 });
 
-test('h without allowHeadless still closes an open spec', async () => {
+test('r without allowHeadless changes nothing, the way any unmapped key does', async () => {
     const { stdin, stdout } = fakeTerminal();
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+    stdin.write('r');
+    stdin.write('\r');
+    const { state } = await resultPromise;
+    assert.equal(state.cursor, 0);
+    assert.equal(visibleRows(state)[0].mark, ' ', 'nothing was ticked and nothing was run');
+});
+
+// h sits next to the new key and kept its meaning. It had no test of its own
+// before, only the left arrow did, so this is here to catch it being taken.
+
+test('h still closes an open spec, with the headless option on', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout, allowHeadless: true });
     stdin.write('\u001b[C'); // open spec a, its contexts are now drawn
     stdin.write('h'); // close it again
     stdin.write('\r');
@@ -385,17 +397,17 @@ test('h without allowHeadless still closes an open spec', async () => {
 
 test('the footer names the headless key only when the option is on', () => {
     const withKey = renderLines(createState(SCANNED), { title: 't', allowHeadless: true });
-    assert.ok(withKey.some((l) => l.includes('h headless')));
+    assert.ok(withKey.some((l) => l.includes('r headless')));
 
     const withoutKey = renderLines(createState(SCANNED), { title: 't' });
-    assert.ok(!withoutKey.some((l) => l.includes('h headless')));
+    assert.ok(!withoutKey.some((l) => l.includes('r headless')));
     assert.ok(withoutKey.some((l) => l.includes('enter run')), 'the rest of the footer is unchanged');
 });
 
-test('the cursor is shown again after accepting with h', async () => {
+test('the cursor is shown again after accepting with r', async () => {
     const { stdin, stdout, written } = fakeTerminal();
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout, allowHeadless: true });
-    stdin.write('h');
+    stdin.write('r');
     await resultPromise;
     assert.equal(written[written.length - 1], '\u001b[?25h');
 });

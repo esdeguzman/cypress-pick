@@ -10,16 +10,17 @@ const KEYS = {
     k: 'up',
     j: 'down',
     l: 'open',
+    h: 'close',
     ' ': 'toggle',
     a: 'all',
     n: 'none',
 };
 
-// h accepts and asks for a headless run. It used to close an open spec, which the
-// left arrow still does, and which is why the letter was affordable to take. Only
-// the spec list binds it: the same widget draws the "How should it run?" list,
-// where there is nothing for a headless key to mean, so there it still closes.
-const HEADLESS_KEY = 'h';
+// r accepts and asks for a headless run, which is cypress run with no second
+// question about how to run. Only the spec list binds it: the same widget draws
+// the "How should it run?" list, where there is nothing for a headless key to
+// mean, and there r is an unmapped key like any other.
+const HEADLESS_KEY = 'r';
 
 // Only q and Ctrl+C quit. A lone escape byte must never quit on its own: every arrow
 // key starts with that same byte, and a slow connection, such as an SSH session or a
@@ -57,7 +58,7 @@ function renderLines(state, { title, width = 78, allowHeadless = false } = {}) {
     lines.push('');
     lines.push('  [x] whole spec   [~] some contexts   [ ] not running');
     lines.push('  up/down move   space tick   right open   left close   a all   n none');
-    lines.push(allowHeadless ? '  enter run   h headless   q quit' : '  enter run   q quit');
+    lines.push(allowHeadless ? '  enter run   r headless   q quit' : '  enter run   q quit');
     return lines;
 }
 
@@ -106,14 +107,9 @@ function promptList(state, { title, stdin = process.stdin, stdout = process.stdo
                 resolve({ state: current, accept: 'ask' });
                 return true;
             }
-            if (text === HEADLESS_KEY) {
-                if (allowHeadless) {
-                    restore();
-                    resolve({ state: current, accept: 'headless' });
-                    return true;
-                }
-                current = reduce(current, 'close');
-                draw();
+            if (allowHeadless && text === HEADLESS_KEY) {
+                restore();
+                resolve({ state: current, accept: 'headless' });
                 return true;
             }
             const action = KEYS[text];
