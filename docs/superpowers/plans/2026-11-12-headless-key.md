@@ -711,12 +711,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 | Task | State |
 |---|---|
-| 1. promptList resolves an object | not started |
-| 2. The h key and the footer entry | not started |
-| 3. cli.js skips the mode list | not started |
-| 4. Documentation | not started |
+| 1. promptList resolves an object | done, committed as f47a22a |
+| 2. The h key and the footer entry | done, committed as 05e5433 |
+| 3. cli.js skips the mode list | done, committed as 758aebd |
+| 4. Documentation | done, committed as e465c94 |
 
-**Next:** Task 1.
+**Next:** nothing. Every task is done.
 
 **In flight:** nothing.
 
