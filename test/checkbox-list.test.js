@@ -357,3 +357,45 @@ test('an error event on stdin still restores the terminal before the promise rej
     await assert.rejects(resultPromise, boom);
     assert.equal(written[written.length - 1], '\u001b[?25h', 'the cursor was shown again before the rejection');
 });
+
+// h accepts and asks for a headless run, which is cypress run with no second
+// question about how to run. It replaces h as a close key, which the left arrow
+// still does. The option exists because the same widget draws the "How should it
+// run?" list, where a headless key would mean nothing.
+
+test('h with allowHeadless resolves an accept of headless, carrying the ticks as they stood', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout, allowHeadless: true });
+    stdin.write(' '); // tick spec a
+    stdin.write('h');
+    const result = await resultPromise;
+    assert.equal(result.accept, 'headless');
+    assert.equal(visibleRows(result.state)[0].mark, 'x', 'the tick made before h is in the resolved state');
+});
+
+test('h without allowHeadless still closes an open spec', async () => {
+    const { stdin, stdout } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
+    stdin.write('\u001b[C'); // open spec a, its contexts are now drawn
+    stdin.write('h'); // close it again
+    stdin.write('\r');
+    const { state } = await resultPromise;
+    assert.deepEqual(visibleRows(state).map((r) => r.kind), ['spec', 'spec'], 'the contexts are hidden again');
+});
+
+test('the footer names the headless key only when the option is on', () => {
+    const withKey = renderLines(createState(SCANNED), { title: 't', allowHeadless: true });
+    assert.ok(withKey.some((l) => l.includes('h headless')));
+
+    const withoutKey = renderLines(createState(SCANNED), { title: 't' });
+    assert.ok(!withoutKey.some((l) => l.includes('h headless')));
+    assert.ok(withoutKey.some((l) => l.includes('enter run')), 'the rest of the footer is unchanged');
+});
+
+test('the cursor is shown again after accepting with h', async () => {
+    const { stdin, stdout, written } = fakeTerminal();
+    const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout, allowHeadless: true });
+    stdin.write('h');
+    await resultPromise;
+    assert.equal(written[written.length - 1], '\u001b[?25h');
+});

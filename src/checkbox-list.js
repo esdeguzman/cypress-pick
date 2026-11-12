@@ -10,11 +10,16 @@ const KEYS = {
     k: 'up',
     j: 'down',
     l: 'open',
-    h: 'close',
     ' ': 'toggle',
     a: 'all',
     n: 'none',
 };
+
+// h accepts and asks for a headless run. It used to close an open spec, which the
+// left arrow still does, and which is why the letter was affordable to take. Only
+// the spec list binds it: the same widget draws the "How should it run?" list,
+// where there is nothing for a headless key to mean, so there it still closes.
+const HEADLESS_KEY = 'h';
 
 // Only q and Ctrl+C quit. A lone escape byte must never quit on its own: every arrow
 // key starts with that same byte, and a slow connection, such as an SSH session or a
@@ -35,7 +40,7 @@ function pad(text, width) {
     return text.length >= width ? text : text + ' '.repeat(width - text.length);
 }
 
-function renderLines(state, { title, width = 78 } = {}) {
+function renderLines(state, { title, width = 78, allowHeadless = false } = {}) {
     const rows = visibleRows(state);
     const lines = ['', '  ' + title, ''];
 
@@ -52,7 +57,7 @@ function renderLines(state, { title, width = 78 } = {}) {
     lines.push('');
     lines.push('  [x] whole spec   [~] some contexts   [ ] not running');
     lines.push('  up/down move   space tick   right open   left close   a all   n none');
-    lines.push('  enter run   q quit');
+    lines.push(allowHeadless ? '  enter run   h headless   q quit' : '  enter run   q quit');
     return lines;
 }
 
@@ -62,7 +67,7 @@ function renderLines(state, { title, width = 78 } = {}) {
 //
 // Quitting resolves null. Accepting resolves { state, accept }, because there is
 // more than one way to accept and the caller has to be able to tell them apart.
-function promptList(state, { title, stdin = process.stdin, stdout = process.stdout } = {}) {
+function promptList(state, { title, stdin = process.stdin, stdout = process.stdout, allowHeadless = false } = {}) {
     return new Promise((resolve, reject) => {
         let current = state;
         let drawnLines = 0;
@@ -71,7 +76,7 @@ function promptList(state, { title, stdin = process.stdin, stdout = process.stdo
 
         const draw = () => {
             if (drawnLines > 0) stdout.write('\u001b[' + drawnLines + 'A\u001b[0J');
-            const lines = renderLines(current, { title });
+            const lines = renderLines(current, { title, allowHeadless });
             stdout.write(lines.join('\n') + '\n');
             drawnLines = lines.length;
         };
@@ -99,6 +104,16 @@ function promptList(state, { title, stdin = process.stdin, stdout = process.stdo
             if (ACCEPT_KEYS.includes(text)) {
                 restore();
                 resolve({ state: current, accept: 'ask' });
+                return true;
+            }
+            if (text === HEADLESS_KEY) {
+                if (allowHeadless) {
+                    restore();
+                    resolve({ state: current, accept: 'headless' });
+                    return true;
+                }
+                current = reduce(current, 'close');
+                draw();
                 return true;
             }
             const action = KEYS[text];
@@ -151,4 +166,4 @@ function promptList(state, { title, stdin = process.stdin, stdout = process.stdo
     });
 }
 
-module.exports = { renderLines, promptList, KEYS, QUIT_KEYS, ACCEPT_KEYS };
+module.exports = { renderLines, promptList, KEYS, QUIT_KEYS, ACCEPT_KEYS, HEADLESS_KEY };
