@@ -51,7 +51,7 @@ Changes what `promptList` resolves, with no change to what any key does. Splitti
 - Consumes: nothing from earlier tasks.
 - Produces: `promptList(state, options)` resolves `null` when the person pressed `q` or Ctrl+C, and `{ state, accept }` otherwise, where `state` is the list state and `accept` is the string `'ask'`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `test/checkbox-list.test.js`, just after the existing test named `enter resolves with the state as it stands`:
 
@@ -67,13 +67,13 @@ test('enter resolves with an accept of ask alongside the state', async () => {
 });
 ```
 
-- [ ] **Step 2: Run it to make sure it fails**
+- [x] **Step 2: Run it to make sure it fails**
 
 Run: `node --test test/checkbox-list.test.js`
 
 Expected: FAIL. `result.accept` is `undefined`, because `promptList` resolves the state itself and a list state has no `accept` property.
 
-- [ ] **Step 3: Change what promptList resolves**
+- [x] **Step 3: Change what promptList resolves**
 
 In `src/checkbox-list.js`, inside `handleKey`, replace the accept branch:
 
@@ -102,13 +102,13 @@ Add this sentence to the end of the comment block directly above the `promptList
 // more than one way to accept and the caller has to be able to tell them apart.
 ```
 
-- [ ] **Step 4: Run the new test to make sure it passes**
+- [x] **Step 4: Run the new test to make sure it passes**
 
 Run: `node --test test/checkbox-list.test.js`
 
 Expected: the new test PASSES. Several other tests in the file now FAIL, because they read the resolved value as a state. Fix them in the next step.
 
-- [ ] **Step 5: Update the existing tests in `test/checkbox-list.test.js`**
+- [x] **Step 5: Update the existing tests in `test/checkbox-list.test.js`**
 
 Every test that accepts with `\r` or `\n` and then uses the resolved value must take `state` out of the result. Change the line
 
@@ -169,13 +169,13 @@ Leave these tests exactly as they are. They either compare the result to `null`,
 - `an exception inside the key handler still restores the terminal before the promise rejects`
 - `an error event on stdin still restores the terminal before the promise rejects`
 
-- [ ] **Step 6: Run the file again**
+- [x] **Step 6: Run the file again**
 
 Run: `node --test test/checkbox-list.test.js`
 
 Expected: PASS, every test.
 
-- [ ] **Step 7: Update both call sites in `src/cli.js`**
+- [x] **Step 7: Update both call sites in `src/cli.js`**
 
 In `chooseHow`, replace:
 
@@ -216,7 +216,7 @@ with:
     const state = picked.state;
 ```
 
-- [ ] **Step 8: Update `test/manual/demo-list.js`**
+- [x] **Step 8: Update `test/manual/demo-list.js`**
 
 Replace the opening of the final block:
 
@@ -239,13 +239,13 @@ promptList(createState(scanned), { title: 'demo, nothing will run' }).then((pick
     const state = picked.state;
 ```
 
-- [ ] **Step 9: Run the whole suite**
+- [x] **Step 9: Run the whole suite**
 
 Run: `npm test`
 
 Expected: PASS, every file. No behaviour has changed yet, so a failure here is a missed call site.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/checkbox-list.js src/cli.js test/checkbox-list.test.js test/manual/demo-list.js
@@ -271,7 +271,7 @@ Adds the key itself, behind an option, so the "How should it run?" list is not a
 - Consumes: `promptList(state, options)` resolving `{ state, accept }` from Task 1.
 - Produces: `promptList(state, { allowHeadless: true, ... })`. With the option on, `h` resolves `{ state, accept: 'headless' }` and the footer reads `  enter run   h headless   q quit`. With the option off or missing, `h` keeps its current meaning, close, and the footer reads `  enter run   q quit`. `renderLines(state, { title, allowHeadless })` takes the same option.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add all four to the end of `test/checkbox-list.test.js`. Escape sequences are written as `\u001b`, matching the rest of the file:
 
@@ -319,13 +319,13 @@ test('the cursor is shown again after accepting with h', async () => {
 });
 ```
 
-- [ ] **Step 2: Run them to make sure they fail**
+- [x] **Step 2: Run them to make sure they fail**
 
 Run: `node --test test/checkbox-list.test.js`
 
 Expected: three FAIL and one PASSES. `h with allowHeadless...` fails because `h` closes instead of accepting, so the promise never settles and the test times out. `the footer names the headless key only when the option is on` fails because no footer line contains `h headless`. `the cursor is shown again after accepting with h` fails the way the first one does. `h without allowHeadless still closes an open spec` passes already, which is the point of it: it is there to catch the option leaking into the other list later.
 
-- [ ] **Step 3: Add the key, the footer entry and the option**
+- [x] **Step 3: Add the key, the footer entry and the option**
 
 In `src/checkbox-list.js`, remove the `h: 'close'` entry from the `KEYS` map, leaving the other vim keys alone. The map becomes:
 
@@ -429,19 +429,19 @@ Add `HEADLESS_KEY` to the exports:
 module.exports = { renderLines, promptList, KEYS, QUIT_KEYS, ACCEPT_KEYS, HEADLESS_KEY };
 ```
 
-- [ ] **Step 4: Run the file to make sure every test passes**
+- [x] **Step 4: Run the file to make sure every test passes**
 
 Run: `node --test test/checkbox-list.test.js`
 
 Expected: PASS, every test, including the ones updated in Task 1.
 
-- [ ] **Step 5: Run the whole suite**
+- [x] **Step 5: Run the whole suite**
 
 Run: `npm test`
 
 Expected: PASS. `cli.js` does not pass `allowHeadless` yet, so nothing it does has changed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/checkbox-list.js test/checkbox-list.test.js
@@ -465,7 +465,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `promptList(state, { allowHeadless: true, ... })` resolving `{ state, accept }` from Task 2.
 - Produces: no new exported function. `main` runs Cypress without drawing the "How should it run?" list when `accept` is `'headless'`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add `PassThrough` to the requires at the top of `test/cli.test.js`, below the existing `path` require:
 
@@ -552,13 +552,13 @@ test('h with nothing ticked refuses, the same way enter does', async () => {
 });
 ```
 
-- [ ] **Step 2: Run them to make sure they fail**
+- [x] **Step 2: Run them to make sure they fail**
 
 Run: `node --test test/cli.test.js`
 
 Expected: `h runs cypress and never draws the mode list` FAILS. `h` is not bound in the spec list yet, so it closes nothing, the promise never settles, and the test times out. `h with nothing ticked refuses` fails the same way.
 
-- [ ] **Step 3: Turn the option on and read the accept**
+- [x] **Step 3: Turn the option on and read the accept**
 
 In `src/cli.js`, in `main`, replace:
 
@@ -594,19 +594,19 @@ with:
         : await chooseHow(scripts, { stdout, stdin });
 ```
 
-- [ ] **Step 4: Run the file to make sure the tests pass**
+- [x] **Step 4: Run the file to make sure the tests pass**
 
 Run: `node --test test/cli.test.js`
 
 Expected: PASS, every test.
 
-- [ ] **Step 5: Run the whole suite**
+- [x] **Step 5: Run the whole suite**
 
 Run: `npm test`
 
 Expected: PASS, every file.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/cli.js test/cli.test.js
@@ -630,7 +630,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: the finished behaviour from Task 3.
 - Produces: nothing other tasks use.
 
-- [ ] **Step 1: Update the sample list in `README.md`**
+- [x] **Step 1: Update the sample list in `README.md`**
 
 Replace these two lines:
 
@@ -646,7 +646,7 @@ with:
   enter run   h headless   q quit
 ```
 
-- [ ] **Step 2: Update the section "Two ways it runs" in `README.md`**
+- [x] **Step 2: Update the section "Two ways it runs" in `README.md`**
 
 Replace its opening sentence:
 
@@ -663,7 +663,7 @@ ask: it runs Cypress directly, which is the first of the two answers below. **Ru
 Cypress directly** needs no setup and builds the command itself:
 ```
 
-- [ ] **Step 3: Say what the h binding replaced**
+- [x] **Step 3: Say what the h binding replaced**
 
 At the end of the "Two ways it runs" section, after the paragraph about the `CYPICK_` variable names, add:
 
@@ -672,7 +672,7 @@ At the end of the "Two ways it runs" section, after the paragraph about the `CYP
 still move down, move up and open.
 ```
 
-- [ ] **Step 4: Update the file map in the original plan**
+- [x] **Step 4: Update the file map in the original plan**
 
 In `docs/superpowers/plans/2026-11-11-cypress-pick.md`, replace the file map row:
 
@@ -686,13 +686,13 @@ with:
 | `src/checkbox-list.js` | Draws the list and reads keys. The only module that touches the terminal. Resolves `{ state, accept }`, where `accept` is `ask` or `headless` |
 ```
 
-- [ ] **Step 5: Check the README against the real footer**
+- [x] **Step 5: Check the README against the real footer**
 
 Run: `node --test test/checkbox-list.test.js`
 
 Expected: PASS. Then read the string in `src/checkbox-list.js` that `renderLines` pushes when `allowHeadless` is true, and confirm it matches the README sample character for character, spacing included. A README that shows a different footer from the one the command draws is the failure this step exists to catch.
 
-- [ ] **Step 6: Run the whole suite and commit**
+- [x] **Step 6: Run the whole suite and commit**
 
 Run: `npm test`
 
