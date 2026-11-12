@@ -34,7 +34,7 @@ Every task's requirements implicitly include this section.
 | `src/spec-scan.js` | Finds spec files and reads the suites inside them |
 | `src/host-config.js` | Reads the host project's Cypress config, support file and Cypress version |
 | `src/list-state.js` | Current state plus a key gives the next state. Plain functions |
-| `src/checkbox-list.js` | Draws the list and reads keys. The only module that touches the terminal |
+| `src/checkbox-list.js` | Draws the list and reads keys. The only module that touches the terminal. Resolves `{ state, accept }`, where `accept` is `ask` or `headless` |
 | `src/npm-scripts.js` | Reads the host project's `package.json` scripts |
 | `src/filter-codec.js` | Encodes and decodes the filter. Used by Node and by the browser |
 | `src/build-args.js` | A selection gives Cypress arguments. Plain functions |
