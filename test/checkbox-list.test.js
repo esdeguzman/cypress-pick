@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { PassThrough } = require('node:stream');
-const { renderLines, promptList } = require('../src/checkbox-list');
+const { renderLines, promptList, wantsColor } = require('../src/checkbox-list');
 const { createState, reduce, visibleRows } = require('../src/list-state');
 
 // Same shape as test/list-state.test.js: two specs, one with a context the
@@ -410,4 +410,34 @@ test('the cursor is shown again after accepting with r', async () => {
     stdin.write('r');
     await resultPromise;
     assert.equal(written[written.length - 1], '\u001b[?25h');
+});
+
+test('with color, the cursor row is reversed and a ticked row is green', () => {
+    let state = createState(SCANNED);
+    let lines = renderLines(state, { title: 't', color: true });
+    const a = () => lines.find((l) => l.includes('cypress/e2e/a.cy.js'));
+    const b = () => lines.find((l) => l.includes('cypress/e2e/b.cy.js'));
+    assert.ok(a().startsWith('\u001b[7m') && !a().includes('\u001b[32m'), 'cursor row, not ticked');
+    assert.ok(!b().includes('\u001b['), 'a row neither under the cursor nor ticked is plain');
+
+    state = reduce(state, 'toggle');
+    lines = renderLines(state, { title: 't', color: true });
+    assert.ok(a().startsWith('\u001b[7m\u001b[32m'), 'cursor on a ticked row gets both');
+
+    state = reduce(state, 'down');
+    lines = renderLines(state, { title: 't', color: true });
+    assert.ok(a().startsWith('\u001b[32m') && !a().includes('\u001b[7m'), 'ticked row off the cursor is green only');
+    assert.ok(b().startsWith('\u001b[7m'), 'the cursor moved to the next row');
+});
+
+test('without color, no escape codes are drawn', () => {
+    const state = reduce(createState(SCANNED), 'toggle');
+    const lines = renderLines(state, { title: 't' });
+    assert.ok(!lines.some((l) => l.includes('\u001b[')));
+});
+
+test('color is used only on a terminal without NO_COLOR', () => {
+    assert.equal(wantsColor({ isTTY: true }, {}), true);
+    assert.equal(wantsColor({ isTTY: true }, { NO_COLOR: '1' }), false);
+    assert.equal(wantsColor({}, {}), false);
 });

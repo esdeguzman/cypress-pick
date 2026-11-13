@@ -41,18 +41,37 @@ function pad(text, width) {
     return text.length >= width ? text : text + ' '.repeat(width - text.length);
 }
 
-function renderLines(state, { title, width = 78, allowHeadless = false } = {}) {
+// The row under the cursor is drawn in reverse video. A ticked row, whole or
+// partial, is drawn in green. A ticked row under the cursor gets both.
+const STYLE_CURSOR = '[7m';
+const STYLE_TICKED = '[32m';
+const STYLE_RESET = '[0m';
+
+function highlight(text, { onCursor, ticked }) {
+    const style = (onCursor ? STYLE_CURSOR : '') + (ticked ? STYLE_TICKED : '');
+    return style ? style + text + STYLE_RESET : text;
+}
+
+// Color only goes to a terminal, and NO_COLOR (https://no-color.org) turns it off.
+function wantsColor(stdout, env = process.env) {
+    return Boolean(stdout.isTTY) && !env.NO_COLOR;
+}
+
+function renderLines(state, { title, width = 78, allowHeadless = false, color = false } = {}) {
     const rows = visibleRows(state);
     const lines = ['', '  ' + title, ''];
 
     rows.forEach((row, index) => {
-        const cursor = index === state.cursor ? '>' : ' ';
+        const onCursor = index === state.cursor;
+        const cursor = onCursor ? '>' : ' ';
         const indent = '  '.repeat(row.depth);
         const box = row.selectable ? '[' + row.mark + ']' : ' - ';
         const left = cursor + ' ' + box + ' ' + indent + row.label;
         const right = row.kind === 'spec' ? String(row.tests) : '';
         const note = row.note ? '  ' + row.note : '';
-        lines.push(pad(left, width - 6) + pad(right, 5) + note);
+        const line = pad(left, width - 6) + pad(right, 5) + note;
+        const ticked = row.selectable && row.mark !== ' ';
+        lines.push(color ? highlight(line, { onCursor, ticked }) : line);
     });
 
     lines.push('');
@@ -74,10 +93,11 @@ function promptList(state, { title, stdin = process.stdin, stdout = process.stdo
         let drawnLines = 0;
         let pending = ''; // a held prefix of a split escape sequence, or an empty string
         let restored = false;
+        const color = wantsColor(stdout);
 
         const draw = () => {
             if (drawnLines > 0) stdout.write('\u001b[' + drawnLines + 'A\u001b[0J');
-            const lines = renderLines(current, { title, allowHeadless });
+            const lines = renderLines(current, { title, allowHeadless, color });
             stdout.write(lines.join('\n') + '\n');
             drawnLines = lines.length;
         };
@@ -162,4 +182,4 @@ function promptList(state, { title, stdin = process.stdin, stdout = process.stdo
     });
 }
 
-module.exports = { renderLines, promptList, KEYS, QUIT_KEYS, ACCEPT_KEYS, HEADLESS_KEY };
+module.exports = { renderLines, promptList, wantsColor, KEYS, QUIT_KEYS, ACCEPT_KEYS, HEADLESS_KEY };
