@@ -203,6 +203,7 @@ still be ticked whole.
 | `src/build-args.js` | Selection gives Cypress arguments. Plain function | nothing |
 | `src/match.js` | Title path plus selection gives true or false. Plain function | nothing |
 | `src/run.js` | Spawns Cypress or an npm script | nothing |
+| `src/last-run.js` | Saves the last run and checks it before `--last` replays it | `src/spec-scan.js` |
 | `support/index.js` | The browser side filter | `src/match.js` |
 | `runner.js` | `applyPick` for host runner scripts | `src/build-args.js` |
 

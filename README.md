@@ -79,10 +79,36 @@ cypress-pick [options] [-- any cypress run flags]
 |---|---|
 | `--spec-pattern <glob>` | Where to look for spec files, instead of the pattern in the Cypress config |
 | `--cwd <path>` | The project to read, instead of the folder you ran it from |
+| `--last` | Run the last picks again, the same way, without showing the list |
 | `-h`, `--help` | Show the help text |
 
 Anything after `--` is passed through to `cypress run`, for example
 `cypress-pick -- --browser chrome`.
+
+## Running the last pick again
+
+```bash
+npx cypress-pick --last
+npm run pick -- --last
+```
+
+Every run is saved before Cypress starts, so a run that failed or was stopped can be
+replayed. `--last` runs the same specs and contexts the same way, directly or through
+the same npm script, with no list and no question. It does not need an interactive
+terminal.
+
+The save is kept in `node_modules/.cache/cypress-pick/last.json`, so it stays out of
+git and goes when `node_modules` does.
+
+Flags after `--` are saved too. Typing new ones with `--last` replaces them for that
+run, for example `npm run pick -- --last -- --browser chrome`.
+
+If a picked spec has been deleted, or a ticked context renamed, since the run was
+saved, it refuses and lists what changed. Replaying it anyway would run something
+other than what was picked.
+
+`npm run pick --last`, without the first `--`, also works, but npm 11 prints a warning
+that it will stop passing unknown flags this way in its next major version.
 
 ## What ticking means
 
@@ -165,7 +191,8 @@ expected rather than confirmed.
 ## What it does not do yet
 
 - Picking individual tests rather than contexts
-- Remembering your last selection
+- Starting the list with your last selection ticked (`--last` replays it, but the
+  list itself always starts empty)
 - The Cypress window, which is a different way of working
 - Component testing
 

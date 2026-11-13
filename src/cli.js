@@ -8,6 +8,7 @@ const { promptList } = require('./checkbox-list');
 const { buildSelection, buildArgs, buildEnv } = require('./build-args');
 const { runnableScripts } = require('./npm-scripts');
 const { runCypress, runNpmScript } = require('./run');
+const { saveLastRun, loadLastRun, staleParts, describeLastRun } = require('./last-run');
 
 const HELP = [
     '',
@@ -20,6 +21,8 @@ const HELP = [
     '    --spec-pattern <glob>   where to look for spec files, instead of the',
     '                            pattern in the Cypress config',
     '    --cwd <path>            the project to read, instead of this folder',
+    '    --last                  run the last picks again, the same way, without',
+    '                            showing the list',
     '    -h, --help              show this',
     '',
     '  Anything after -- is passed to cypress run, for example:',
@@ -28,7 +31,7 @@ const HELP = [
 ].join('\n');
 
 function parseArgs(argv) {
-    const options = { passthrough: [], specPattern: null, cwd: null, help: false };
+    const options = { passthrough: [], specPattern: null, cwd: null, help: false, last: false };
     const rest = argv.slice();
     while (rest.length > 0) {
         const arg = rest.shift();
@@ -36,6 +39,7 @@ function parseArgs(argv) {
         else if (arg === '-h' || arg === '--help') options.help = true;
         else if (arg === '--spec-pattern') options.specPattern = rest.shift();
         else if (arg === '--cwd') options.cwd = rest.shift();
+        else if (arg === '--last') options.last = true;
         else options.passthrough.push(arg);
     }
     return options;
@@ -105,13 +109,17 @@ async function chooseHow(scripts, { stdout, stdin }) {
     return decideHow(picked.state, scripts);
 }
 
-async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin = process.stdin } = {}) {
+async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin = process.stdin, env = process.env } = {}) {
     const options = parseArgs(argv);
+    // `npm run pick --last` keeps --last for npm itself, which passes it on only as
+    // this variable. Reading it lets that form work without the extra --.
+    if (env.npm_config_last === 'true') options.last = true;
     if (options.help) { stdout.write(HELP); return 0; }
 
     const root = options.cwd ? path.resolve(options.cwd) : cwd;
     const host = readHost(root);
     if (options.specPattern) host.specPattern = [options.specPattern];
+    if (options.last) return replay(root, host, options.passthrough, { stdout });
 
     // This notice explains the pattern that the next message complains about, so it
     // has to come first. Printed after the exit below, a person whose config could
@@ -164,15 +172,7 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
 
     for (const line of warnings(state)) stdout.write('\n  ' + line + '\n');
 
-    // A project with no package.json of its own is unusual but possible, and it is
-    // not a reason to stop: running Cypress directly still works.
-    let hostPackage = {};
-    try {
-        hostPackage = require(path.join(root, 'package.json'));
-    } catch (err) {
-        hostPackage = {};
-    }
-    const scripts = runnableScripts(hostPackage);
+    const scripts = runnableScripts(readHostPackage(root));
     // The headless key is an answer to the question chooseHow asks, given before it
     // was asked, so the question is not asked. It is the same answer a project with
     // no runnable scripts gets, which is why both reach the same value here.
@@ -183,19 +183,55 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
     if (!outcome) { stdout.write('\n  Nothing run.\n'); return 0; }
     if (outcome.message) stdout.write('\n  ' + outcome.message + '\n');
     if (!outcome.how) return 1;
-    const how = outcome.how;
 
+    saveLastRun(root, { selection, how: outcome.how, passthrough: options.passthrough });
+    return execute(outcome.how, selection, options.passthrough, { root, host, scripts, stdout });
+}
+
+function readHostPackage(root) {
+    // A project with no package.json of its own is unusual but possible, and it is
+    // not a reason to stop: running Cypress directly still works.
+    try {
+        return require(path.join(root, 'package.json'));
+    } catch (err) {
+        return {};
+    }
+}
+
+function execute(how, selection, passthrough, { root, host, scripts, stdout }) {
     const version = { cypressMajor: host.cypressMajor === null ? 16 : host.cypressMajor };
     if (how.kind === 'cypress') {
-        const dropped = typedSpecNotice(options.passthrough, selection);
+        const dropped = typedSpecNotice(passthrough, selection);
         if (dropped) stdout.write('\n  ' + dropped + '\n');
-        return runCypress(composeCypressArgs(selection, version, options.passthrough), { cwd: root });
+        return runCypress(composeCypressArgs(selection, version, passthrough), { cwd: root });
     }
     return runNpmScript(how.name, {
         cwd: root,
         env: buildEnv(selection, version),
         scripts: scripts.map((s) => s.name),
     });
+}
+
+// Replays the saved run with no list and no question, so it also works where there
+// is no interactive terminal. Flags typed after -- this time replace the saved ones,
+// because they are the newer instruction; with none typed, the saved ones are used.
+function replay(root, host, passthrough, { stdout }) {
+    const loaded = loadLastRun(root);
+    if (loaded.problem) { stdout.write('\n  ' + loaded.problem + '\n\n'); return 1; }
+    const run = loaded.run;
+    if (passthrough.length > 0) run.passthrough = passthrough;
+
+    const stale = staleParts(root, run.selection);
+    if (stale.length > 0) {
+        stdout.write('\n  The last run cannot be replayed as it was picked:\n');
+        for (const line of stale) stdout.write('    ' + line + '\n');
+        stdout.write('  Run cypress-pick without --last to pick again.\n\n');
+        return 1;
+    }
+
+    stdout.write('\n' + describeLastRun(run).map((line) => '  ' + line).join('\n') + '\n');
+    const scripts = runnableScripts(readHostPackage(root));
+    return execute(run.how, run.selection, run.passthrough, { root, host, scripts, stdout });
 }
 
 module.exports = { main, parseArgs, composeCypressArgs, hasSpecFlag, decideHow, typedSpecNotice };
