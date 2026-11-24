@@ -68,6 +68,8 @@ function pad(text, width) {
 // partial, is drawn in green. A ticked row under the cursor gets both.
 const STYLE_CURSOR = '[7m';
 const STYLE_TICKED = '[32m';
+const WRAP_OFF = '\u001b[?7l';
+const WRAP_ON = '\u001b[?7h';
 const STYLE_RESET = '[0m';
 
 function highlight(text, { onCursor, ticked }) {
@@ -111,10 +113,42 @@ function footerLines(state, { allowHeadless, allowSearch }) {
     return [marks, moves, run + (allowSearch ? '   / search' : '') + '   q quit'];
 }
 
-// Cut to the terminal's width, because a line that wraps takes up two, and the
-// redraw moves up by the number of lines it wrote.
+// Cut to the terminal's width. This counts characters, so a line holding wide ones,
+// such as an emoji, can still be too long. promptList turns line wrapping off for
+// that, because a line that wraps takes up two, and the redraw moves up by the number
+// of lines it wrote.
 function clip(text, columns) {
     return columns && text.length >= columns ? text.slice(0, columns - 1) : text;
+}
+
+// A title written over several lines would otherwise be drawn over several too.
+function oneLine(text) {
+    return text.replace(/[\u0000-\u001f\u007f]+/g, ' ');
+}
+
+// The fewest lines worth giving the list: three rows, and the two lines saying how
+// much is out of sight.
+const LEAST_ROOM = 5;
+
+// What goes around the list. A short terminal, such as a small editor panel, gets
+// less of it. What is drawn must never be taller than the terminal: it would scroll,
+// the redraw could not reach the top of it, and every key would push it further up.
+//
+// One line is left for the terminal's own cursor, which sits below the list.
+function layoutFor(state, { title, height, allowHeadless, allowSearch }) {
+    const search = state.search.typing || isSearching(state) ? [searchLine(state)] : [];
+    const name = ['  ' + title];
+    const [marks, moves, run] = footerLines(state, { allowHeadless, allowSearch });
+    const layouts = [
+        { head: ['', ...name, ...search, ''], foot: ['', marks, moves, run] },
+        { head: [...name, ...search], foot: [moves, run] },
+        { head: search.length > 0 ? search : name, foot: [run] },
+        { head: search.length > 0 ? search : name, foot: [] },
+    ];
+    if (!height) return { ...layouts[0], room: Infinity };
+    const sized = layouts.map((x) => ({ ...x, room: height - x.head.length - x.foot.length - 1 }));
+    const last = sized[sized.length - 1];
+    return sized.find((x) => x.room >= LEAST_ROOM) || { ...last, room: Math.max(1, last.room) };
 }
 
 // Which rows fit. The cursor's row is kept in the middle where there is room.
@@ -129,34 +163,32 @@ function renderLines(state, {
     title, width = 78, allowHeadless = false, allowSearch = false, color = false, height, columns,
 } = {}) {
     const rows = visibleRows(state);
-    const head = ['', '  ' + title];
-    if (state.search.typing || isSearching(state)) head.push(searchLine(state));
-    head.push('');
-    const foot = [''].concat(footerLines(state, { allowHeadless, allowSearch }));
+    const { head, foot, room } = layoutFor(state, { title, height, allowHeadless, allowSearch });
 
     // A list that does not fit is drawn a part at a time. It gives up two lines to say
-    // how much is out of sight, and one more line is left for the terminal's cursor,
-    // which sits below the list. Both lines are always there, so nothing jumps as the
-    // list scrolls.
-    const room = height ? Math.max(3, height - head.length - foot.length - 1) : rows.length;
+    // how much is out of sight, where there is room to. Both are always there, so
+    // nothing jumps as the list scrolls.
     const scrolls = rows.length > room;
-    const { from, to } = scrolls ? windowOf(rows.length, state.cursor, room - 2) : { from: 0, to: rows.length };
+    const counts = scrolls && room >= 3;
+    const { from, to } = scrolls
+        ? windowOf(rows.length, state.cursor, counts ? room - 2 : room)
+        : { from: 0, to: rows.length };
 
     const lines = head.map((line) => clip(line, columns));
-    if (scrolls) lines.push(from > 0 ? '      ' + from + ' more above' : '');
+    if (counts) lines.push(from > 0 ? '      ' + from + ' more above' : '');
     rows.slice(from, to).forEach((row, offset) => {
         const onCursor = from + offset === state.cursor;
         const cursor = onCursor ? '>' : ' ';
         const indent = '  '.repeat(row.depth);
         const box = row.selectable ? '[' + row.mark + ']' : ' - ';
-        const left = cursor + ' ' + box + ' ' + indent + row.label;
+        const left = cursor + ' ' + box + ' ' + indent + oneLine(row.label);
         const right = row.kind === 'spec' ? String(row.tests) : '';
         const note = row.note ? '  ' + row.note : '';
         const line = clip(pad(left, width - 6) + pad(right, 5) + note, columns);
         const ticked = row.selectable && row.mark !== ' ';
         lines.push(color ? highlight(line, { onCursor, ticked }) : line);
     });
-    if (scrolls) lines.push(to < rows.length ? '      ' + (rows.length - to) + ' more below' : '');
+    if (counts) lines.push(to < rows.length ? '      ' + (rows.length - to) + ' more below' : '');
 
     return lines.concat(foot.map((line) => clip(line, columns)));
 }
@@ -197,6 +229,7 @@ function promptList(state, {
             stdin.removeListener('error', onError);
             if (stdin.isTTY) stdin.setRawMode(false);
             stdin.pause();
+            stdout.write(WRAP_ON);
             stdout.write('\u001b[?25h');
         };
 
@@ -305,7 +338,7 @@ function promptList(state, {
         stdin.resume();
         stdin.on('data', onData);
         stdin.on('error', onError);
-        stdout.write('\u001b[?25l');
+        stdout.write('\u001b[?25l' + WRAP_OFF);
         draw();
     });
 }

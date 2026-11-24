@@ -268,9 +268,12 @@ test('space on the row saying a spec has no contexts does nothing', () => {
 const MANY = Array.from({ length: 200 }, (_, i) => spec('spec-' + i));
 
 test('a long list never takes more lines than the terminal has', () => {
-    for (const height of [12, 24, 50]) {
-        for (const cursor of [0, 100, 199]) {
-            const state = { ...createState(MANY), cursor };
+    const heights = Array.from({ length: 48 }, (_, i) => i + 3);
+    for (const height of heights) {
+        for (const cursor of [0, 100, 199, 'searching']) {
+            const state = cursor === 'searching'
+                ? search(createState(MANY, { tickedFirst: true }), 'spec')
+                : { ...createState(MANY), cursor };
             const lines = renderLines(state, { title: 't', height, columns: 80, allowSearch: true });
             assert.ok(lines.length < height, lines.length + ' lines in ' + height);
             assert.ok(lines.some((l) => l.startsWith('>')), 'the row under the cursor is in view');
@@ -283,6 +286,24 @@ test('a list that does not fit says how much is out of sight', () => {
     assert.ok(!at(0).includes('more above') && at(0).includes('more below'));
     assert.ok(at(100).includes('more above') && at(100).includes('more below'));
     assert.ok(at(199).includes('more above') && !at(199).includes('more below'));
+});
+
+test('a short terminal keeps the title or the search, and three rows where it can', () => {
+    const draw = (state) => renderLines(state, { title: 'the title', height: 8, columns: 80 });
+    const isRow = (line) => /^[> ] \[/.test(line);
+    const plain = draw(createState(MANY));
+    assert.match(plain[0], /the title/);
+    assert.equal(plain.filter(isRow).length, 3);
+    const searching = draw(search(createState(MANY), 'spec'));
+    assert.match(searching[0], /search: spec_/);
+    assert.equal(searching.filter(isRow).length, 3);
+});
+
+test('a title written over several lines is drawn on one', () => {
+    const state = reduce(createState([spec('a', [suite('one\n\ttwo')])]), 'open');
+    const lines = renderLines(state, { title: 't' });
+    assert.ok(lines.some((l) => l.includes('one two')));
+    assert.ok(lines.every((l) => !l.includes('\n')));
 });
 
 test('a list that fits is drawn whole, and no line reaches the edge of the terminal', () => {
@@ -326,7 +347,7 @@ function open(options = {}) {
     const send = async (...chunks) => {
         for (const chunk of chunks) { stdin.write(chunk); await settle(); }
     };
-    return { send, settle, result, lastDraw: () => written[written.length - 1] };
+    return { send, settle, result, lastDraw: () => written[written.length - 1], all: () => written.join('') };
 }
 
 const checked = (picked) => toPickedSpecs(picked.state).map((s) => s.checked);
@@ -390,6 +411,15 @@ test('an arrow key split after its first byte does not end the search', async ()
     assert.match(lastDraw(), /search: o_/);
     await send('\u0003');
     await result;
+});
+
+test('line wrapping is off while the list is up, and on again after', async () => {
+    const { send, result, all } = open();
+    await send('q');
+    await result;
+    const output = all();
+    assert.ok(output.indexOf('\u001b[?7l') !== -1);
+    assert.ok(output.lastIndexOf('\u001b[?7h') > output.lastIndexOf('\u001b[?7l'));
 });
 
 test('a list without search ignores the search key', async () => {
