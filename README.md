@@ -6,7 +6,6 @@ the contexts inside it too, so you can run part of a large spec without editing 
 ```
   cypress-pick              19 specs, 764 tests
 
-  [ ] audit-logs.cy.js                          34
   [x] confirmed-bugs.cy.js                      48
   [~] forecasted-cost-konjuur-286.cy.js         31
       [x] A. Card structure and static content
@@ -14,12 +13,13 @@ the contexts inside it too, so you can run part of a large spec without editing 
       [ ] C. Status gating and route differences
       [ ] D. Update Pricing
        -  E. Values, labels and cell behaviour   skipped
+  [ ] audit-logs.cy.js                          34
 > [ ] login-konjuur-79.cy.js                    23
   [ ] project-approvals.cy.js                   52
 
   [x] whole spec   [~] some contexts   [ ] not running
   up/down move   space tick   right open   left close   a all   n none
-  enter run   r headless   q quit
+  enter run   r headless   / search   q quit
 ```
 
 This is a real list, drawn from a 19 spec, 764 test Cypress project. Ticking contexts A
@@ -120,6 +120,42 @@ that it will stop passing unknown flags this way in its next major version.
 | Tick nothing | It refuses to run and says so |
 
 Contexts are a way of narrowing. You never have to open one.
+
+Ticked specs, whole or partial, move to the top of the list. This changes the list
+only, not the order they run in.
+
+## Search
+
+Press `/` and type. The list narrows to the specs and contexts that match, best match
+first, with the ticked specs kept above them.
+
+```
+  cypress-pick              19 specs, 764 tests
+  search: pricng_    1 spec found, 1 ticked shown
+
+  [x] confirmed-bugs.cy.js                      48
+  [ ] forecasted-cost-konjuur-286.cy.js         31
+>     [ ] D. Update Pricing
+```
+
+| Key | What it does |
+|---|---|
+| up, down | Move through the results while typing |
+| tab | Tick, while typing |
+| shift+tab | Hide the ticked specs, or show them again |
+| enter | Stop typing and keep the results. The usual keys work again, and a second enter runs |
+| `/` | Go back to typing |
+| backspace | Delete a letter. With nothing typed, leave the search |
+| esc or Ctrl+U | End the search and list everything |
+
+The match is fuzzy. `login` can be found by `lgoin`, `confirmed-bugs` by `confbug` or
+`cnfbg`. With several words, all of them have to match, in the spec's name or in a
+context's title: `login expired` finds the context Expired session in `login.cy.js`.
+Folders that every spec is in are not searched, unless you type a path with a `/` or `.`.
+
+While searching, `a` and `n` act on the results only. Hiding the ticked specs hides
+those ticked whole. A `[~]` result stays, as it still has contexts to tick. A hidden
+spec is still ticked and still runs.
 
 ## Two ways it runs
 

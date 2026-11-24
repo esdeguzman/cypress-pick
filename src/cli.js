@@ -160,7 +160,9 @@ async function main(argv, { cwd = process.cwd(), stdout = process.stdout, stdin 
 
     const total = scanned.reduce((sum, s) => sum + s.tests, 0);
     const title = 'cypress-pick        ' + files.length + ' specs, ' + total + ' tests';
-    const picked = await promptList(createState(scanned), { title, stdout, stdin, allowHeadless: true });
+    const picked = await promptList(createState(scanned, { tickedFirst: true }), {
+        title, stdout, stdin, allowHeadless: true, allowSearch: true,
+    });
     if (!picked) { stdout.write('\n  Nothing run.\n'); return 0; }
     const state = picked.state;
 

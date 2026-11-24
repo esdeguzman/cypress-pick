@@ -1,5 +1,7 @@
 'use strict';
 
+const { findMatches } = require('./search');
+
 // Everything about the list that does not need a terminal. The drawing lives in
 // src/checkbox-list.js, which calls into here for every key. Keeping the two apart
 // is what makes the behaviour testable.
@@ -34,9 +36,13 @@ function selectableSuite(suite) {
     return suite.modifier !== 'skip' && suite.readable && !suite.blockedBy;
 }
 
-function createState(scannedSpecs) {
+// tickedFirst draws the ticked specs above the rest. It changes the drawing only:
+// `specs` keeps its own order, so what runs, and in what order, does not change.
+function createState(scannedSpecs, { tickedFirst = false } = {}) {
     return {
         cursor: 0,
+        tickedFirst,
+        search: { typing: false, query: '', hideTicked: false, matches: new Map() },
         specs: scannedSpecs.map((s) => ({
             relative: s.relative,
             tests: s.tests,
@@ -72,6 +78,10 @@ function carriesOnly(spec) {
 function clone(state) {
     return {
         cursor: state.cursor,
+        tickedFirst: state.tickedFirst,
+        // The matches are replaced whole when the query changes and never edited, so
+        // the copy can share them.
+        search: { ...state.search },
         specs: state.specs.map((s) => ({ ...s, suites: s.suites.map((x) => ({ ...x })) })),
     };
 }
@@ -85,9 +95,61 @@ function markFor(spec) {
     return '~';
 }
 
+function isSearching(state) {
+    return state.search.query.trim() !== '';
+}
+
+// Only a spec ticked whole can be hidden. A partly ticked one still has contexts
+// left to tick, and hiding it would take it away from someone halfway through it.
+function isHidden(state, specIndex) {
+    return state.search.hideTicked && markFor(state.specs[specIndex]) === 'x';
+}
+
+// The specs that are drawn, in the order they are drawn. While searching, that is
+// the results plus whatever is ticked, or only the results not yet ticked whole when
+// the ticked ones are hidden.
+function shownSpecs(state) {
+    const all = state.specs.map((_, i) => i);
+    const ticked = (i) => state.specs[i].checked;
+
+    if (!isSearching(state)) {
+        if (!state.tickedFirst) return all;
+        return all.filter(ticked).concat(all.filter((i) => !ticked(i)));
+    }
+
+    const { matches, hideTicked } = state.search;
+    const shown = all.filter((i) => (matches.has(i) && !isHidden(state, i)) || (ticked(i) && !hideTicked));
+    const results = shown
+        .filter((i) => !ticked(i))
+        .sort((x, y) => matches.get(y).score - matches.get(x).score || x - y);
+    return shown.filter(ticked).concat(results);
+}
+
+// The counts shown beside the search.
+function searchSummary(state) {
+    const shown = new Set(shownSpecs(state));
+    const ticked = state.specs.map((_, i) => i).filter((i) => state.specs[i].checked);
+    return {
+        found: state.search.matches.size,
+        tickedShown: ticked.filter((i) => shown.has(i)).length,
+        tickedHidden: ticked.filter((i) => !shown.has(i)).length,
+    };
+}
+
+// An opened spec shows every context, as it does with no search. One that is not
+// opened shows only the contexts the search found.
+function shownSuites(state, specIndex) {
+    const spec = state.specs[specIndex];
+    const all = spec.suites.map((_, i) => i);
+    if (spec.open) return all;
+    const match = isSearching(state) ? state.search.matches.get(specIndex) : null;
+    return match ? all.filter((i) => match.suites.has(i)) : [];
+}
+
 function visibleRows(state) {
     const rows = [];
-    state.specs.forEach((spec, specIndex) => {
+    shownSpecs(state).forEach((specIndex) => {
+        const spec = state.specs[specIndex];
         rows.push({
             kind: 'spec',
             specIndex,
@@ -100,10 +162,9 @@ function visibleRows(state) {
             tests: spec.tests,
             open: spec.open,
         });
-        if (!spec.open) return;
         // Opening a spec that has nothing to tick used to show nothing at all, which
         // reads as the picker having failed. Say why instead.
-        if (spec.suites.length === 0) {
+        if (spec.open && spec.suites.length === 0) {
             rows.push({
                 kind: 'note',
                 specIndex,
@@ -118,7 +179,8 @@ function visibleRows(state) {
             });
             return;
         }
-        spec.suites.forEach((suite, suiteIndex) => {
+        shownSuites(state, specIndex).forEach((suiteIndex) => {
+            const suite = spec.suites[suiteIndex];
             rows.push({
                 kind: 'suite',
                 specIndex,
@@ -151,39 +213,115 @@ function setSpec(spec, checked) {
     }
 }
 
-function reduce(state, keyName) {
+function keyOf(row) {
+    return row.kind + ':' + row.specIndex + ':' + row.suiteIndex;
+}
+
+function specKey(specIndex) {
+    return 'spec:' + specIndex + ':-1';
+}
+
+function indexOfKey(state, key) {
+    return visibleRows(state).findIndex((row) => keyOf(row) === key);
+}
+
+// Puts the cursor back on a row after the list has changed around it, or on the spec
+// the row was in. Returns false, with the cursor left alone, when neither is shown.
+function keepCursorOn(state, row) {
+    if (!row) return false;
+    for (const key of [keyOf(row), specKey(row.specIndex)]) {
+        const at = indexOfKey(state, key);
+        if (at !== -1) {
+            state.cursor = at;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Where the cursor belongs when it is sent to a spec. A spec found through one of
+// its contexts takes the cursor to that context, so that ticking there ticks what
+// was searched for rather than the whole spec.
+function landingKey(state, specIndex) {
+    const match = isSearching(state) ? state.search.matches.get(specIndex) : null;
+    if (!match || match.firstHit === -1) return specKey(specIndex);
+    return 'suite:' + specIndex + ':' + match.firstHit;
+}
+
+// Ticking can move a row, or hide it. A row that stays where it was keeps the
+// cursor. So does a context, or an opened spec, because the person is working inside
+// it. Otherwise the cursor goes to the spec that came next, so that several can be
+// ticked one after another without being carried to the top of the list each time.
+function placeCursorAfterTick(next, before) {
+    const row = before[next.cursor];
+    const now = indexOfKey(next, keyOf(row));
+    const stays = now === next.cursor || row.kind === 'suite' || next.specs[row.specIndex].open;
+    if (now !== -1 && stays) {
+        next.cursor = now;
+        return;
+    }
+    const other = (r) => r.kind === 'spec' && r.specIndex !== row.specIndex;
+    const neighbour = before.slice(next.cursor + 1).find(other) || before.slice(0, next.cursor).reverse().find(other);
+    const at = neighbour ? indexOfKey(next, landingKey(next, neighbour.specIndex)) : -1;
+    if (at !== -1) next.cursor = at;
+}
+
+// Puts the cursor on the best result, past the ticked specs drawn above it.
+function placeCursorOnResult(state) {
+    const found = shownSpecs(state).filter((i) => state.search.matches.has(i));
+    const unticked = found.find((i) => !state.specs[i].checked);
+    const target = unticked === undefined ? found[0] : unticked;
+    state.cursor = target === undefined ? 0 : indexOfKey(state, landingKey(state, target));
+}
+
+// `row` is the one the cursor is on, which it stays on when the search is emptied.
+function setQuery(state, query, row) {
+    state.search.query = query;
+    state.search.matches = findMatches(state.specs, query);
+    if (isSearching(state)) placeCursorOnResult(state);
+    else keepCursorOn(state, row);
+}
+
+function reduce(state, keyName, text = '') {
     const next = clone(state);
+    step(next, keyName, text);
+    // A list with nothing in it still has to leave the cursor at zero.
+    next.cursor = Math.max(0, Math.min(next.cursor, visibleRows(next).length - 1));
+    return next;
+}
+
+// Changes `next` in place. reduce has already made the copy.
+function step(next, keyName, text) {
     const rows = visibleRows(next);
     const row = rows[next.cursor];
+    const { search } = next;
 
     switch (keyName) {
         case 'up':
-            next.cursor = Math.max(0, next.cursor - 1);
-            return next;
+            next.cursor -= 1;
+            return;
         case 'down':
-            next.cursor = Math.min(rows.length - 1, next.cursor + 1);
-            return next;
+            next.cursor += 1;
+            return;
         case 'open':
             if (row && row.kind === 'spec') next.specs[row.specIndex].open = true;
-            return next;
+            return;
         case 'close':
-            if (!row) return next;
-            if (row.kind === 'suite') {
-                next.specs[row.specIndex].open = false;
-                next.cursor = visibleRows(next).findIndex((r) => r.kind === 'spec' && r.specIndex === row.specIndex);
-                return next;
-            }
+            if (!row) return;
             next.specs[row.specIndex].open = false;
-            return next;
+            next.cursor = indexOfKey(next, specKey(row.specIndex));
+            return;
         case 'toggle': {
-            if (!row) return next;
+            // A note row is there to be read. There is nothing on it to tick.
+            if (!row || row.kind === 'note') return;
             const spec = next.specs[row.specIndex];
             if (row.kind === 'spec') {
                 setSpec(spec, !spec.checked);
-                return next;
+                placeCursorAfterTick(next, rows);
+                return;
             }
             const suite = spec.suites[row.suiteIndex];
-            if (!suite.selectable) return next;
+            if (!suite.selectable) return;
             // Ticking a context ticks the contexts inside it, the same way ticking a
             // spec ticks its contexts. Without this, ticking a parent sent the parent
             // as wanted and every child as not wanted, and the children were then
@@ -195,16 +333,44 @@ function reduce(state, keyName) {
                 }
             }
             syncSpecFromSuites(spec);
-            return next;
+            placeCursorAfterTick(next, rows);
+            return;
         }
         case 'all':
-            for (const spec of next.specs) setSpec(spec, true);
-            return next;
         case 'none':
-            for (const spec of next.specs) setSpec(spec, false);
-            return next;
+            // While searching, these act on the results that are shown and on nothing
+            // else. A ticked spec that is only listed above them is left alone.
+            for (const i of shownSpecs(next)) {
+                if (isSearching(next) && !search.matches.has(i)) continue;
+                setSpec(next.specs[i], keyName === 'all');
+            }
+            keepCursorOn(next, row);
+            return;
+        case 'search-start':
+            search.typing = true;
+            return;
+        case 'search-type':
+            setQuery(next, search.query + text, row);
+            return;
+        case 'search-backspace':
+            // Backspace with nothing typed leaves the search.
+            if (search.query === '') search.typing = false;
+            else setQuery(next, Array.from(search.query).slice(0, -1).join(''), row);
+            return;
+        case 'search-accept':
+            search.typing = false;
+            if (!isSearching(next)) setQuery(next, '', row);
+            return;
+        case 'search-end':
+            search.typing = false;
+            setQuery(next, '', row);
+            return;
+        case 'search-ticked':
+            if (!isSearching(next)) return;
+            search.hideTicked = !search.hideTicked;
+            if (!keepCursorOn(next, row)) placeCursorOnResult(next);
+            return;
         default:
-            return next;
     }
 }
 
@@ -268,4 +434,4 @@ function warnings(state) {
     return lines;
 }
 
-module.exports = { createState, visibleRows, reduce, toPickedSpecs, warnings };
+module.exports = { createState, visibleRows, reduce, isSearching, searchSummary, toPickedSpecs, warnings };

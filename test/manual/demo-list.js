@@ -24,7 +24,7 @@ const scanned = fs.readdirSync(dir).filter((f) => f.endsWith('.cy.js')).map((f) 
     };
 });
 
-promptList(createState(scanned), { title: 'demo, nothing will run' }).then((picked) => {
+promptList(createState(scanned, { tickedFirst: true }), { title: 'demo, nothing will run', allowSearch: true }).then((picked) => {
     if (!picked) {
         console.log('quit');
         return;

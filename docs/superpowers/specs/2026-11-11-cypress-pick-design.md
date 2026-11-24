@@ -198,7 +198,9 @@ still be ticked whole.
 | `src/cli.js` | Reads flags, calls the others in order, launches | all of the below |
 | `src/spec-scan.js` | Finds spec files and reads their contexts | the file system |
 | `src/checkbox-list.js` | Draws the list and handles keys | nothing |
-| `src/list-state.js` | Key plus current state gives next state. Plain function | nothing |
+| `src/list-state.js` | Key plus current state gives next state. Plain function | `src/search.js` |
+| `src/search.js` | Which specs and contexts a query finds | `src/fuzzy.js` |
+| `src/fuzzy.js` | Scores one search term against one text | nothing |
 | `src/npm-scripts.js` | Reads the host `package.json` scripts | the file system |
 | `src/build-args.js` | Selection gives Cypress arguments. Plain function | nothing |
 | `src/match.js` | Title path plus selection gives true or false. Plain function | nothing |
