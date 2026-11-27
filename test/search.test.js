@@ -413,6 +413,43 @@ test('an arrow key split after its first byte does not end the search', async ()
     await result;
 });
 
+test('the list draws on a screen of its own, and hands it back when it closes', async () => {
+    const { send, result, all } = open();
+    await send('q');
+    await result;
+    const output = all();
+    assert.ok(output.indexOf('\u001b[?1049h') !== -1, 'it asks for a screen of its own');
+    assert.ok(output.lastIndexOf('\u001b[?1049l') > output.lastIndexOf('\u001b[?1049h'), 'it hands it back');
+});
+
+test('a redraw writes over what was there, so the screen is never empty', async () => {
+    const { send, result, lastDraw } = open();
+    await send('\u001b[B');
+    const drawn = lastDraw();
+    assert.ok(drawn.startsWith('\u001b[H'), 'it draws from the top of its own screen');
+    assert.ok(drawn.indexOf('\u001b[K') !== -1, 'each line clears what was on that row');
+    assert.ok(drawn.indexOf('\u001b[0J') === -1, 'nothing is erased before the lines are written');
+    await send('q');
+    await result;
+});
+
+test('a drawing shorter than the last one clears the rows below it', async () => {
+    const { send, result, all } = open();
+    await send('/', 'l', 'o', 'g', 'i', 'n');
+    await send('\u0003'); // q is a letter while a search is being typed
+    await result;
+    // Every draw starts at the top of the screen, so the output splits on that.
+    const draws = all().split('\u001b[H').slice(1).map((text) => ({
+        rows: text.split('\n').length,
+        clearsBelow: text.indexOf('\u001b[0J') !== -1,
+    }));
+    const shorter = draws.filter((draw, i) => i > 0 && draw.rows < draws[i - 1].rows);
+    assert.ok(shorter.length > 0, 'the search narrowed the list, so some draw is shorter');
+    assert.ok(shorter.every((draw) => draw.clearsBelow), 'each shorter draw clears the rows below it');
+    const same = draws.filter((draw, i) => i > 0 && draw.rows >= draws[i - 1].rows);
+    assert.ok(same.every((draw) => !draw.clearsBelow), 'a draw that is not shorter erases nothing');
+});
+
 test('line wrapping is off while the list is up, and on again after', async () => {
     const { send, result, all } = open();
     await send('q');

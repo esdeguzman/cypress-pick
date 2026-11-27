@@ -60,6 +60,17 @@ function isPartialEscape(text) {
     return text === '\u001b' || text === '\u001b[';
 }
 
+// Set CYPRESS_PICK_TRACE to a file path to record everything the list sends to the
+// terminal, one write per line. It is for chasing a redraw that lands in the wrong
+// place: the recording can be replayed against a model of a terminal to see where
+// each draw actually went.
+const TRACE = process.env.CYPRESS_PICK_TRACE;
+
+function record(entry) {
+    if (!TRACE) return;
+    require('node:fs').appendFileSync(TRACE, JSON.stringify(entry) + '\n');
+}
+
 function pad(text, width) {
     return text.length >= width ? text : text + ' '.repeat(width - text.length);
 }
@@ -68,9 +79,28 @@ function pad(text, width) {
 // partial, is drawn in green. A ticked row under the cursor gets both.
 const STYLE_CURSOR = '[7m';
 const STYLE_TICKED = '[32m';
+const STYLE_RESET = '[0m';
+
 const WRAP_OFF = '\u001b[?7l';
 const WRAP_ON = '\u001b[?7h';
-const STYLE_RESET = '[0m';
+
+// The list asks the terminal for a screen of its own, the way vim and less do, and
+// hands it back when it closes. Drawn in the normal screen it could not work: the
+// terminal already holds the command that was typed and whatever was printed above,
+// so a drawing the height of the window pushes that off, the window scrolls, and a
+// redraw can no longer reach the top of what it drew. The shell's own output is left
+// exactly as it was.
+const SCREEN_OWN = '\u001b[?1049h';
+const SCREEN_BACK = '\u001b[?1049l';
+const HIDE_CURSOR = '\u001b[?25l';
+const SHOW_CURSOR = '\u001b[?25h';
+
+// Drawing from the top of that screen, over what is already on it, is what stops the
+// list blinking on every key. Erasing first and then drawing leaves the screen empty
+// in between, which a terminal that paints slowly, such as Command Prompt, shows.
+const TO_TOP = '\u001b[H';
+const CLEAR_LINE = '\u001b[K'; // from the cursor to the end of its row
+const CLEAR_BELOW = '\u001b[0J'; // from the cursor to the end of the screen
 
 function highlight(text, { onCursor, ticked }) {
     const style = (onCursor ? STYLE_CURSOR : '') + (ticked ? STYLE_TICKED : '');
@@ -210,12 +240,40 @@ function promptList(state, {
         let restored = false;
         const color = wantsColor(stdout);
 
+        // While a recording is being made, anything that is not the list is recorded
+        // too, because another writer moving the cursor would put the next draw
+        // somewhere other than the top of the screen.
+        let writing = false;
+        const realWrite = stdout.write.bind(stdout);
+        if (TRACE) {
+            stdout.write = (...args) => {
+                if (!writing) record({ other: String(args[0]) });
+                return realWrite(...args);
+            };
+        }
+
+        const write = (text) => {
+            record({ write: text });
+            writing = true;
+            try {
+                realWrite(text);
+            } finally {
+                writing = false;
+            }
+        };
+
         const draw = () => {
-            if (drawnLines > 0) stdout.write('\u001b[' + drawnLines + 'A\u001b[0J');
             const lines = renderLines(current, {
                 title, allowHeadless, allowSearch, color, height: stdout.rows, columns: stdout.columns,
             });
-            stdout.write(lines.join('\n') + '\n');
+            record({ draw: lines.length, drawnBefore: drawnLines, rows: stdout.rows, columns: stdout.columns });
+            // No line break after the last line: on the last row of the screen it
+            // would scroll, and then the top of the drawing would be out of reach.
+            let text = TO_TOP + lines.join(CLEAR_LINE + '\n') + CLEAR_LINE;
+            // Rows the last drawing used and this one does not would otherwise keep
+            // showing its tail.
+            if (lines.length < drawnLines) text += CLEAR_BELOW;
+            write(text);
             drawnLines = lines.length;
         };
 
@@ -229,8 +287,10 @@ function promptList(state, {
             stdin.removeListener('error', onError);
             if (stdin.isTTY) stdin.setRawMode(false);
             stdin.pause();
-            stdout.write(WRAP_ON);
-            stdout.write('\u001b[?25h');
+            // The terminal keeps wrapping and the cursor as they are set here, so
+            // both are put back before the screen is handed over.
+            write(WRAP_ON + SHOW_CURSOR + SCREEN_BACK);
+            if (TRACE) stdout.write = realWrite;
         };
 
         const act = (action, text) => {
@@ -302,6 +362,7 @@ function promptList(state, {
         const onData = (chunk) => {
             try {
                 const raw = chunk.toString();
+                record({ key: raw });
                 const hadPrefix = pending.length > 0;
                 const combined = pending + raw;
                 pending = '';
@@ -338,7 +399,8 @@ function promptList(state, {
         stdin.resume();
         stdin.on('data', onData);
         stdin.on('error', onError);
-        stdout.write('\u001b[?25l' + WRAP_OFF);
+        record({ started: true, rows: stdout.rows, columns: stdout.columns, color });
+        write(SCREEN_OWN + HIDE_CURSOR + WRAP_OFF);
         draw();
     });
 }

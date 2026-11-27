@@ -3,6 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { PassThrough } = require('node:stream');
+// What the list writes when it closes: wrapping back on, the cursor shown again, and
+// the screen handed back to the shell.
+const RESTORED = '\u001b[?7h\u001b[?25h\u001b[?1049l';
+
 const { renderLines, promptList, wantsColor } = require('../src/checkbox-list');
 const { createState, reduce, visibleRows } = require('../src/list-state');
 
@@ -185,23 +189,25 @@ test('a ticks everything and n unticks everything', async () => {
     assert.deepEqual(visibleRows(untickedAll).map((r) => r.mark), [' ', ' ']);
 });
 
-// The screen is rewound by exactly the number of lines the previous draw wrote, so a
-// run that leaves copies on screen shows up here as the wrong rewind count rather than
-// only in a person's terminal.
-test('a redraw rewinds the screen by exactly the number of lines drawn last time', async () => {
+// Every draw starts at the top of the list's own screen and writes over what is there.
+// A run that leaves copies on screen, or that blinks, shows up here as a draw that
+// moves somewhere else or erases before it writes, rather than only in a person's
+// terminal.
+test('every draw starts at the top of the screen and writes over what was there', async () => {
     const { stdin, stdout, written } = fakeTerminal();
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
     stdin.write('\u001b[B'); // forces a second draw
     stdin.write('\r');
     await resultPromise;
 
-    const firstDraw = written[1]; // written[0] is the initial hide-cursor escape
-    const linesDrawn = firstDraw.split('\n').length - 1; // trailing \n leaves one empty entry
-    const secondDraw = written[2];
-    assert.ok(
-        secondDraw.startsWith('\u001b[' + linesDrawn + 'A'),
-        'the rewind count must match how many lines the previous draw wrote'
-    );
+    const draws = written.filter((text) => text.indexOf('\u001b[H') === 0);
+    assert.equal(draws.length, 2, 'the key drew a second time');
+    for (const draw of draws) {
+        const rows = draw.split('\n');
+        assert.ok(rows.every((row) => row.endsWith('\u001b[K')), 'each row clears what was on it');
+        assert.ok(!draw.endsWith('\n'), 'no line break after the last row, which would scroll the screen');
+    }
+    assert.ok(draws[1].indexOf('\u001b[0J') === -1, 'a draw the same height as the last erases nothing');
 });
 
 test('an unknown key changes nothing', async () => {
@@ -224,7 +230,7 @@ test('the cursor is shown again after quitting with q', async () => {
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
     stdin.write('q');
     await resultPromise;
-    assert.equal(written[written.length - 1], '\u001b[?25h');
+    assert.equal(written[written.length - 1], RESTORED);
 });
 
 test('the cursor is shown again after accepting with enter', async () => {
@@ -232,7 +238,7 @@ test('the cursor is shown again after accepting with enter', async () => {
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
     stdin.write('\r');
     await resultPromise;
-    assert.equal(written[written.length - 1], '\u001b[?25h');
+    assert.equal(written[written.length - 1], RESTORED);
 });
 
 test('the cursor is shown again after Ctrl+C', async () => {
@@ -240,7 +246,7 @@ test('the cursor is shown again after Ctrl+C', async () => {
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout });
     stdin.write('\u0003');
     await resultPromise;
-    assert.equal(written[written.length - 1], '\u001b[?25h');
+    assert.equal(written[written.length - 1], RESTORED);
 });
 
 // Fix round 1, finding 2: the up arrow and the left arrow had no test driving them
@@ -341,7 +347,7 @@ test('an exception inside the key handler still restores the terminal before the
         const resultPromise = brokenPromptList(createState(SCANNED), { title: 't', stdin, stdout });
         stdin.write(' '); // any mapped key reaches reduce() and throws
         await assert.rejects(resultPromise, /reduce broke/);
-        assert.equal(written[written.length - 1], '\u001b[?25h', 'the cursor was shown again before the rejection');
+        assert.equal(written[written.length - 1], RESTORED, 'the terminal was put back before the rejection');
     } finally {
         listStateModule.reduce = originalReduce;
         delete require.cache[checkboxListPath];
@@ -355,7 +361,7 @@ test('an error event on stdin still restores the terminal before the promise rej
     const boom = new Error('stdin broke');
     stdin.emit('error', boom);
     await assert.rejects(resultPromise, boom);
-    assert.equal(written[written.length - 1], '\u001b[?25h', 'the cursor was shown again before the rejection');
+    assert.equal(written[written.length - 1], RESTORED, 'the terminal was put back before the rejection');
 });
 
 // r accepts and asks for a headless run, which is cypress run with no second
@@ -409,7 +415,7 @@ test('the cursor is shown again after accepting with r', async () => {
     const resultPromise = promptList(createState(SCANNED), { title: 't', stdin, stdout, allowHeadless: true });
     stdin.write('r');
     await resultPromise;
-    assert.equal(written[written.length - 1], '\u001b[?25h');
+    assert.equal(written[written.length - 1], RESTORED);
 });
 
 test('with color, the cursor row is reversed and a ticked row is green', () => {
