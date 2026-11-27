@@ -15,7 +15,7 @@ drawing blink. Commit a895b68 did not fix it. It now draws on a screen of its ow
 | Checked by hand in Warp | waiting |
 | Checked by hand in Command Prompt | waiting |
 | Checked by hand in Git Bash | waiting |
-| Commit | not made |
+| Commit | done, `87096de`, pushed to `origin/main` on 2026-11-27 |
 
 ## The cause
 
